@@ -1,184 +1,157 @@
 # BotIdentity
 
-A Counter-Strike 2 Metamod plugin for managing bot identities.
+A minimal **drop-in replacement** for the native BotHider plugin, focused on
+stability and simplicity. Implements the same shared-memory wire format as
+BotHider so the BotHiderImpl C# plugin (in CS2-Bot-Improve) works unchanged.
 
-## Overview
+## Why
 
-BotIdentity allows you to customize bot identities including:
-- Custom SteamID64
-- Custom player names
-- Fake ping (10-60ms)
-- Scoreboard flair (with probability)
-- Custom crosshair codes
-- Custom avatars
+The upstream BotHider project:
 
-## Key Difference from Schema API Approach
+- Is **~2500 lines of C++** with multiple funchook detours
+- Implements a fragile **population transaction** that races with the engine
+  during `bot_quota` changes and `MaintainBotQuota` calls
+- Crashes frequently when bots are added/removed, especially on competitive
+  mode where `bot_quota` is adjusted mid-round by game systems
 
-**Critical Discovery**: The original Schema API approach failed because it tried to modify Native bots directly. However, Schema API can only modify networked fields, which don't affect client display for Native bots.
+BotIdentity is **~300 lines of C++** with **no funchook, no transactions, no
+multi-hook coordination**. It does exactly one thing:
 
-**Solution**: BotIdentity converts Native bots to Fake-players first by setting `m_bFakePlayer = 1` in the `CServerSideClient` structure. This allows subsequent modifications to work correctly.
+> **On bot connect: write `m_bFakePlayer = 0`, write synthetic SteamID, write
+> FakeClientFlags = 0, write shared-memory slot metadata. On disconnect:
+> restore all fields. Nothing else.**
 
-## Building
+## Architecture
 
-### Prerequisites
-
-1. **Metamod:Source SDK**
-   - Download from: https://github.com/alliedmodders/metamod-source
-   - Extract to a known location
-
-2. **HL2SDK for CS2**
-   - Download from: https://github.com/alliedmodders/hl2sdk
-   - Branch: `cs2` or appropriate branch
-   - Extract to a known location
-
-3. **CMake 3.10+**
-
-### Build Instructions
-
-#### Linux
-
-```bash
-cd CS2-Bot-Identity
-mkdir build && cd build
-cmake .. \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DMETAMOD_PATH=/path/to/metamod-source \
-  -DHL2SDK_PATH=/path/to/hl2sdk
-make
+```
+┌──────────────────────────────────────────────────────────────┐
+│  BotIdentity native (this project)                            │
+│  ─ OnClientConnected hook:                                    │
+│    1. Locate CServerSideClient* by slot                        │
+│    2. ClearFakePlayer (m_bFakePlayer=0, conn_flags=0x01)        │
+│    3. WriteSteamId (m_SteamID + m_SteamIDMirror)               │
+│    4. ResolveEntityInstance + ClearControllerFakeClientFlags  │
+│    5. PublishAdopt → shm                                       │
+│  ─ OnClientDisconnect hook:                                    │
+│    1. Restore everything to native bot state                   │
+│    2. PublishRelease → shm                                     │
+└────────────────────────┬─────────────────────────────────────────┘
+                         │  /dev/shm/CS2BotHider_Slots
+                         │  (BotHider-compatible wire format)
+                         ▼
+┌──────────────────────────────────────────────────────────────┐
+│  BotHiderImpl C# (in CS2-Bot-Improve)                          │
+│  ─ Reads shm, applies per-bot identity via Schema API:        │
+│    m_iszPlayerName, m_steamID, m_iPing, m_szCrosshairCodes,    │
+│    InventoryServices.m_rank (scoreboard flair)                 │
+│  ─ Adds IBotHiderApi capability for other plugins             │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-#### Windows
-
-```cmd
-cd CS2-Bot-Identity
-mkdir build && cd build
-cmake .. -G "Visual Studio 17 2022" -A x64 ^
-  -DMETAMOD_PATH=C:\path\to\metamod-source ^
-  -DHL2SDK_PATH=C:\path\to\hl2sdk
-cmake --build . --config Release
-```
-
-## Installation
-
-1. Copy the built plugin to your server:
-   ```
-   game/csgo/addons/BotIdentity/bin/linuxsteamrt64/BotIdentity.so  (Linux)
-   game/csgo/addons/BotIdentity/bin/windows/BotIdentity.dll         (Windows)
-   ```
-
-2. Copy `config.json` to:
-   ```
-   game/csgo/addons/BotIdentity/config.json
-   ```
-
-3. Add to `game/csgo/addons/metamod/metaplugins.ini`:
-   ```
-   addons/BotIdentity/bin/linuxsteamrt64/BotIdentity.so    (Linux)
-   addons/BotIdentity/bin/windows/BotIdentity.dll           (Windows)
-   ```
-
-4. Restart your server
-
-## Configuration
-
-Edit `config.json`:
-
-```json
-{
-  "bots": {
-    "BotName1": {
-      "steamId": 76561197960287XXX,
-      "name": "Custom Name 1",
-      "crosshairCode": "CSGO-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX",
-      "scoreboardFlair": 874,
-      "avatarPath": "avatars/bot1.png"
-    }
-  },
-  "features": {
-    "enableFakePing": true,
-    "fakePingMin": 10,
-    "fakePingMax": 60,
-    "enableScoreboardFlair": true,
-    "scoreboardFlairProbability": 0.3
-  }
-}
-```
-
-## How It Works
-
-1. **Hook OnClientConnected**: When a bot connects, we intercept the connection
-2. **Convert to Fake-player**: Set `m_bFakePlayer = 1` in `CServerSideClient`
-3. **Apply Identity**: 
-   - Write custom SteamID to memory
-   - Set custom player name
-   - Apply other customizations
-4. **Hook ClientPutInServer**: Reapply identity to ensure it's set correctly
-5. **Hook ClientDisconnect**: Clean up managed bot data
-
-## Memory Offsets
-
-The following offsets are used for direct memory manipulation (Linux):
-
-| Field | Offset | Type |
-|-------|--------|------|
-| m_Name | 64 | CUtlString |
-| m_bFakePlayer | 160 | bool |
-| m_SteamID | 171 | uint64 |
-| m_SteamIDMirror | 179 | uint64 |
-| m_nConnectionTypeFlags | 96 | byte |
-
-**Note**: These offsets may change with game updates. If the plugin stops working after an update, these offsets may need to be recalculated.
-
-## Troubleshooting
-
-### Plugin doesn't load
-- Check that all dependencies are met
-- Verify the plugin path in `metaplugins.ini`
-- Check server logs for error messages
-
-### Bot identities don't apply
-- Verify memory offsets are correct for your game version
-- Check that bots are being created as Native bots
-- Enable debug logging to see what's happening
-
-### Crashes
-- Ensure the plugin is compatible with your Metamod version
-- Check for conflicts with other plugins
-- Report crashes with stack traces
-
-## Development
-
-### Project Structure
+## File layout
 
 ```
 CS2-Bot-Identity/
 ├── src/
-│   ├── plugin.h          # Metamod plugin interface
-│   ├── plugin.cpp        # Plugin implementation and hooks
-│   ├── bot_identity.h    # Bot identity management
-│   ├── config.h          # Configuration management
-│   └── memory_ops.h      # Direct memory operations
-├── CMakeLists.txt        # Build configuration
-├── config.json           # Example configuration
-└── README.md             # This file
+│   ├── plugin.cpp        ── IServerGameClients hooks, lifecycle
+│   ├── ssc_ops.h         ── ClearFakePlayer / SetFakePlayer / WriteSteamId
+│   ├── entity_access.cpp ── resolve CServerSideClient* and entity controller
+│   ├── bot_info.cpp      ── bot_info.json parser (no nlohmann dependency)
+│   └── shm_pub.cpp       ── shm region creator + data publishers
+├── CMakeLists.txt
+├── bot_info.json         ── per-bot config (name, steamid, ping, crosshair, flair)
+└── gamedata.json         ── offset overrides
 ```
 
-### Key Components
+## Drop-in replacement
 
-- **memory_ops.h**: Direct memory manipulation functions
-- **bot_identity.h**: Bot identity management logic
-- **plugin.cpp**: Metamod hooks and plugin lifecycle
-- **config.h**: Configuration loading and management
+Replace `<server>/game/csgo/addons/metamod/BotHider.vdf` and the
+corresponding `.so`/`BotHider.dll` with `BotIdentity.vdf` and `BotIdentity.so`.
+The shm name `CS2BotHider_Slots` is preserved, so:
 
-## License
+- `BotHiderImpl.dll` (in `addons/counterstrikesharp/plugins/BotHiderImpl/`)
+  works unchanged
+- `shared/BotHiderApi/BotHiderApi.dll` works unchanged
+- `bot_info.json` is the new config file (replaces BotHider's C++ persona
+  registry)
 
-MIT License
+## Configuration
 
-## Credits
+```json
+{
+  "bots": {
+    "TestBot1": {
+      "steamid": 76561198000000001,
+      "name": "Test Bot 1",
+      "ping": 35,
+      "crosshair": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
+      "scoreboardFlair": 874
+    }
+  }
+}
+```
 
-- Inspired by CS2-Bot-Hider project
-- Thanks to the Metamod:Source and AlliedModders communities
+| Field | Type | Required | Effect |
+|---|---|---|---|
+| `steamid` | uint64 | yes | Synthetic SteamID written to `m_SteamID` |
+| `name` | string | yes | Persona name (32 bytes NUL-padded UTF-8) |
+| `ping` | int | no | When > 0, written to `CCSPlayerController::m_iPing` |
+| `crosshair` | string | no | Crosshair code (64 bytes) |
+| `scoreboardFlair` | uint32 | no | ItemDefIndex written to `InventoryServices::m_rank[]` |
 
-## Disclaimer
+## Build
 
-This plugin modifies game memory directly. Use at your own risk. May not be compatible with all server configurations or future game updates.
+```bash
+mkdir build && cd build
+HL2SDKCS2=/path/to/hl2sdk-cs2 \
+MMSOURCE_DEV=/path/to/metamod-source \
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make
+```
+
+## Install
+
+```bash
+# Copy
+cp BotIdentity.so \
+  <server>/game/csgo/addons/BotIdentity/bin/linuxsteamrt64/
+cp bot_info.json gamedata.json \
+  <server>/game/csgo/addons/BotIdentity/
+cp BotIdentity.vdf \
+  <server>/game/csgo/addons/metamod/
+
+# Disable BotHider native (BotHiderImpl C# stays)
+mv <server>/game/csgo/addons/BotController/BotHider.disabled \
+   <server>/game/csgo/addons/BotController/BotHider  # if applicable
+
+# Restart CS2
+```
+
+## Stability notes
+
+- **No** `MaintainBotQuota` / `HandleCommand_JoinTeam` / `SameMapTeardown`
+  hooks. The population transaction race that plagued BotHider is impossible
+  here because we never touch the bot quota.
+- **No** `funchook` detours. Only SourceHook vtable hooks on
+  `IServerGameClients` — same stability profile as the rest of Metamod.
+- **Disconnect-time restore** is best-effort: if a bot is killed and re-added
+  in the same tick, the entity may already be gone. BotHiderImpl will detect
+  the released slot and not try to re-apply.
+- **Game update survival**: `CServerSideClient` member offsets are loaded
+  from `gamedata.json` at startup. If a CS2 update moves them, only the
+  gamedata file needs updating (no rebuild required).
+
+## Limitations
+
+This plugin intentionally does **not** implement:
+
+- bot_kick voting coordination
+- Same-map teardown preservation
+- Population transaction snapshot/restore
+- Avatar upload (BotHiderImpl handles this separately)
+- Custom crosshair UI
+- Vote Improver integration
+
+These features rely on complex multi-hook orchestration in the original
+BotHider and were excluded to keep the implementation auditable. If a use
+case arises, file an issue and we can add it incrementally.
