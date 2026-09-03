@@ -3,8 +3,14 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <eiface.h>
 #include <fstream>
+#include <interfaces/interfaces.h>
+#include <iserver.h>
 #include <sstream>
+
+class INetworkServerService;
+extern INetworkServerService* g_pNetworkServerService;
 
 namespace botid {
 
@@ -115,11 +121,41 @@ const BotIdentity* BotInfo::GetByName(const char* name) const {
     return nullptr;
 }
 
-BotIdentity* BotInfo::GetFree() {
-    for (auto& b : m_Bots) {
-        if (b.slot < 0) return &b;
+bool BotInfo::IsSlotActive(int slot) {
+    // ConnectionType != 0 means the slot is occupied
+    if (g_pNetworkServerService) {
+        auto* gameServer = g_pNetworkServerService->GetIGameServer();
+        if (gameServer) {
+            return gameServer->GetClientConnectionType(CPlayerSlot(slot)) != 0;
+        }
     }
-    return nullptr;
+    return false;
+}
+
+BotIdentity* BotInfo::GetFree() {
+    // First pass: return any unused entry
+    for (int i = 0; i < Count(); ++i) {
+        if (m_Bots[i].slot < 0) return &m_Bots[i];
+    }
+    // Second pass: all in use — find one whose slot is no longer valid
+    for (int i = 0; i < Count(); ++i) {
+        int s = m_Bots[i].slot;
+        if (s < 0 || s >= 64) {
+            m_Bots[i].slot = -1;
+            m_Bots[i].applied = false;  // Reset so it can be re-applied
+            return &m_Bots[i];
+        }
+        // If slot isn't actually a bot anymore, recycle
+        if (!IsSlotActive(s)) {
+            m_Bots[i].slot = -1;
+            m_Bots[i].applied = false;
+            return &m_Bots[i];
+        }
+    }
+    // All slots valid — recycle the first one (handles over-quota joins)
+    m_Bots[0].slot = -1;
+    m_Bots[0].applied = false;
+    return &m_Bots[0];
 }
 
 BotIdentity* BotInfo::At(int idx) {

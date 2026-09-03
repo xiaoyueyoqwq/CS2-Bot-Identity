@@ -99,21 +99,25 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
     CPlayerSlot slot, const char* pszName, uint64 /*xuid*/,
     const char* /*pszNetworkID*/, const char* /*pszAddress*/, bool bFakePlayer)
 {
+    int slotIdx = slot.Get();
     if (!s_PluginActive) RETURN_META(MRES_IGNORED);
     if (!bFakePlayer) RETURN_META(MRES_IGNORED);
 
-    int slotIdx = slot.Get();
     if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
     if (pszName && std::strncmp(pszName, "HLTV", 4) == 0) RETURN_META(MRES_IGNORED);
 
     botid::BotIdentity* identity = botid::BotInfos().GetFree();
-    if (!identity) RETURN_META(MRES_IGNORED);
+    if (!identity) {
+        META_CONPRINTF("[BotIdentity] OnClientConnected no free identity slot=%d\n", slotIdx);
+        RETURN_META(MRES_IGNORED);
+    }
 
     // Find index in vector
-    int botIndex = 0;
+    int botIndex = -1;
     for (int i = 0; i < botid::BotInfos().Count(); ++i) {
         if (botid::BotInfos().GetByIndex(i) == identity) { botIndex = i; break; }
     }
+    if (botIndex < 0) RETURN_META(MRES_IGNORED);
     botid::IdentityMgr().Mark(slotIdx, botIndex);
     botid::ApplyDisguise(slotIdx, identity);
 

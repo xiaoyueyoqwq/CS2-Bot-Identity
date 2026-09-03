@@ -32,7 +32,8 @@ public:
     int Count() const { return static_cast<int>(m_Bots.size()); }
     const BotIdentity* GetByIndex(int idx) const;
     const BotIdentity* GetByName(const char* name) const;
-    BotIdentity* GetFree();  // returns first slot=-1 entry, or nullptr
+    BotIdentity* GetFree();  // returns first unused entry, recycles if needed
+    bool IsSlotActive(int slot);  // check if engine slot has a connected player
     BotIdentity* At(int idx);  // mutable access (for IdentityManager)
 
 private:
