@@ -132,6 +132,16 @@ bool BotInfo::IsSlotActive(int slot) {
     return false;
 }
 
+static void ResetForReuse(BotIdentity& b) {
+    b.slot = -1;
+    b.applied = false;
+    // When recycled, derive a slot-specific synthetic SteamID so each
+    // bot on the server ends up with a unique id even if it reuses a name.
+    // The high 48 bits come from the base, the low 16 bits encode reuse count
+    // and slot-relative index (assigned at Mark time via a separate rewrite).
+    b.reused = static_cast<uint16_t>(b.reused + 1);
+}
+
 BotIdentity* BotInfo::GetFree() {
     // First pass: return any unused entry
     for (int i = 0; i < Count(); ++i) {
@@ -141,20 +151,17 @@ BotIdentity* BotInfo::GetFree() {
     for (int i = 0; i < Count(); ++i) {
         int s = m_Bots[i].slot;
         if (s < 0 || s >= 64) {
-            m_Bots[i].slot = -1;
-            m_Bots[i].applied = false;  // Reset so it can be re-applied
+            ResetForReuse(m_Bots[i]);
             return &m_Bots[i];
         }
         // If slot isn't actually a bot anymore, recycle
         if (!IsSlotActive(s)) {
-            m_Bots[i].slot = -1;
-            m_Bots[i].applied = false;
+            ResetForReuse(m_Bots[i]);
             return &m_Bots[i];
         }
     }
     // All slots valid — recycle the first one (handles over-quota joins)
-    m_Bots[0].slot = -1;
-    m_Bots[0].applied = false;
+    ResetForReuse(m_Bots[0]);
     return &m_Bots[0];
 }
 

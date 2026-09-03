@@ -40,6 +40,17 @@ static void ApplyDisguise(int slot, BotIdentity* identity) {
 
     int entityIndex = GetEntityIndex(client);
 
+    // If this identity was recycled, derive a slot-unique SteamID
+    // so bots reusing the same name still get distinct SteamIDs.
+    if (identity->reused > 0) {
+        // Keep the upper 48 bits from the config SteamID, overwrite the
+        // lower 16 bits with (reused * 64 + slot). This stays inside the
+        // 48-bit account-id range and is deterministic.
+        uint64_t base = identity->steamId & 0xFFFFFFFFFFFF0000ULL;
+        uint64_t suffix = (static_cast<uint64_t>(identity->reused) * 64u + static_cast<uint64_t>(slot)) & 0xFFFFu;
+        identity->steamId = base | suffix;
+    }
+
     // Step 1: Clear CServerSideClient::m_bFakePlayer (set bit pattern: 0x01 mask)
     ClearFakePlayer(client);
     // Step 2: Write synthetic SteamID

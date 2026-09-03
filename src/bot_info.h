@@ -21,6 +21,7 @@ struct BotIdentity {
     std::string crosshair;  // empty = no override
     uint32_t scoreboardFlair = 0;  // 0 = no override
     bool applied = false;
+    uint16_t reused = 0;  // increments each time this entry is recycled
 };
 
 // BotInfo: loads bot identities from JSON config
