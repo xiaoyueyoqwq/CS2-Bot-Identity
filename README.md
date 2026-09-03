@@ -1,52 +1,24 @@
 # BotIdentity
 
-A minimal **drop-in replacement** for the native BotHider plugin, focused on
-stability and simplicity. Implements the same shared-memory wire format as
-BotHider so the BotHiderImpl C# plugin (in CS2-Bot-Improve) works unchanged.
+A Metamod:Source native plugin for CS2 that handles bot identity at the
+engine level. Publishes bot identity data via the shared-memory protocol
+`CS2BotHider_Slots`, so any consumer that reads from this region (such as
+`BotHiderImpl.dll` in CS2-Bot-Improve) can pick it up.
 
-## Why
+## What it does
 
-The upstream BotHider project:
+On `IServerGameClients::OnClientConnected`, for fake-player (bot) clients:
 
-- Is **~2500 lines of C++** with multiple funchook detours
-- Implements a fragile **population transaction** that races with the engine
-  during `bot_quota` changes and `MaintainBotQuota` calls
-- Crashes frequently when bots are added/removed, especially on competitive
-  mode where `bot_quota` is adjusted mid-round by game systems
+1. Locate the `CServerSideClient*` for the connecting slot
+2. Clear `m_bFakePlayer` and update `m_nConnectionTypeFlags`
+3. Write a synthetic `m_SteamID` (and `m_SteamIDMirror`) from the config
+4. Clear `FakeClientFlags` bit `0x100` on the controller entity, when
+   reachable
+5. Publish slot metadata (state, SteamID, persona name) to
+   `/dev/shm/CS2BotHider_Slots`
 
-BotIdentity is **~300 lines of C++** with **no funchook, no transactions, no
-multi-hook coordination**. It does exactly one thing:
-
-> **On bot connect: write `m_bFakePlayer = 0`, write synthetic SteamID, write
-> FakeClientFlags = 0, write shared-memory slot metadata. On disconnect:
-> restore all fields. Nothing else.**
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  BotIdentity native (this project)                            │
-│  ─ OnClientConnected hook:                                    │
-│    1. Locate CServerSideClient* by slot                        │
-│    2. ClearFakePlayer (m_bFakePlayer=0, conn_flags=0x01)        │
-│    3. WriteSteamId (m_SteamID + m_SteamIDMirror)               │
-│    4. ResolveEntityInstance + ClearControllerFakeClientFlags  │
-│    5. PublishAdopt → shm                                       │
-│  ─ OnClientDisconnect hook:                                    │
-│    1. Restore everything to native bot state                   │
-│    2. PublishRelease → shm                                     │
-└────────────────────────┬─────────────────────────────────────────┘
-                         │  /dev/shm/CS2BotHider_Slots
-                         │  (BotHider-compatible wire format)
-                         ▼
-┌──────────────────────────────────────────────────────────────┐
-│  BotHiderImpl C# (in CS2-Bot-Improve)                          │
-│  ─ Reads shm, applies per-bot identity via Schema API:        │
-│    m_iszPlayerName, m_steamID, m_iPing, m_szCrosshairCodes,    │
-│    InventoryServices.m_rank (scoreboard flair)                 │
-│  ─ Adds IBotHiderApi capability for other plugins             │
-└──────────────────────────────────────────────────────────────┘
-```
+On `OnClientDisconnect`, restore the bot to its native state and publish
+slot release to the same shm region.
 
 ## File layout
 
@@ -56,26 +28,16 @@ CS2-Bot-Identity/
 │   ├── plugin.cpp        ── IServerGameClients hooks, lifecycle
 │   ├── ssc_ops.h         ── ClearFakePlayer / SetFakePlayer / WriteSteamId
 │   ├── entity_access.cpp ── resolve CServerSideClient* and entity controller
-│   ├── bot_info.cpp      ── bot_info.json parser (no nlohmann dependency)
+│   ├── bot_info.cpp      ── bot_info.json parser
 │   └── shm_pub.cpp       ── shm region creator + data publishers
 ├── CMakeLists.txt
-├── bot_info.json         ── per-bot config (name, steamid, ping, crosshair, flair)
-└── gamedata.json         ── offset overrides
+├── config.json           ── per-bot identity (name, steamid, ping, crosshair, flair)
+└── README.md
 ```
 
-## Drop-in replacement
-
-Replace `<server>/game/csgo/addons/metamod/BotHider.vdf` and the
-corresponding `.so`/`BotHider.dll` with `BotIdentity.vdf` and `BotIdentity.so`.
-The shm name `CS2BotHider_Slots` is preserved, so:
-
-- `BotHiderImpl.dll` (in `addons/counterstrikesharp/plugins/BotHiderImpl/`)
-  works unchanged
-- `shared/BotHiderApi/BotHiderApi.dll` works unchanged
-- `bot_info.json` is the new config file (replaces BotHider's C++ persona
-  registry)
-
 ## Configuration
+
+`config.json`:
 
 ```json
 {
@@ -101,6 +63,9 @@ The shm name `CS2BotHider_Slots` is preserved, so:
 
 ## Build
 
+Requires `hl2sdk-cs2` and `metamod-source` (only the headers, not the
+full engine).
+
 ```bash
 mkdir build && cd build
 HL2SDKCS2=/path/to/hl2sdk-cs2 \
@@ -112,46 +77,43 @@ make
 ## Install
 
 ```bash
-# Copy
-cp BotIdentity.so \
-  <server>/game/csgo/addons/BotIdentity/bin/linuxsteamrt64/
-cp bot_info.json gamedata.json \
-  <server>/game/csgo/addons/BotIdentity/
-cp BotIdentity.vdf \
-  <server>/game/csgo/addons/metamod/
-
-# Disable BotHider native (BotHiderImpl C# stays)
-mv <server>/game/csgo/addons/BotController/BotHider.disabled \
-   <server>/game/csgo/addons/BotController/BotHider  # if applicable
-
-# Restart CS2
+cp BotIdentity.so <server>/game/csgo/addons/BotIdentity/bin/linuxsteamrt64/
+cp config.json    <server>/game/csgo/addons/BotIdentity/
+cp BotIdentity.vdf <server>/game/csgo/addons/metamod/
+# addons/metamod/BotIdentity.vdf points to the .so path
 ```
 
-## Stability notes
+A restart of the CS2 process is required (standard for any Metamod native).
 
-- **No** `MaintainBotQuota` / `HandleCommand_JoinTeam` / `SameMapTeardown`
-  hooks. The population transaction race that plagued BotHider is impossible
-  here because we never touch the bot quota.
-- **No** `funchook` detours. Only SourceHook vtable hooks on
-  `IServerGameClients` — same stability profile as the rest of Metamod.
-- **Disconnect-time restore** is best-effort: if a bot is killed and re-added
-  in the same tick, the entity may already be gone. BotHiderImpl will detect
-  the released slot and not try to re-apply.
-- **Game update survival**: `CServerSideClient` member offsets are loaded
-  from `gamedata.json` at startup. If a CS2 update moves them, only the
-  gamedata file needs updating (no rebuild required).
+## Shared memory protocol
 
-## Limitations
+`/dev/shm/CS2BotHider_Slots`, 1 064 960 bytes, magic `'BHID'`.
 
-This plugin intentionally does **not** implement:
+| Offset | Field | Notes |
+|---|---|---|
+| 16 | SlotState | `byte[64]` 0=unmanaged 1=managed |
+| 80 | SyntheticSid | `uint64[64]` |
+| 592 | PersonaName | `char[64][32]` |
+| 5720 | CurrentPing | `int32[64]` |
+| 5976 | Crosshair | `char[64][64]` |
+| 10400 | ScoreboardFlair | `uint32[64]` |
+| 13216 | Incarnation | `uint64[64]` |
 
-- bot_kick voting coordination
-- Same-map teardown preservation
-- Population transaction snapshot/restore
-- Avatar upload (BotHiderImpl handles this separately)
-- Custom crosshair UI
-- Vote Improver integration
+Other fields exist in the upstream protocol (sig entries, avatar data) and
+are not written by this plugin.
 
-These features rely on complex multi-hook orchestration in the original
-BotHider and were excluded to keep the implementation auditable. If a use
-case arises, file an issue and we can add it incrementally.
+## Notes
+
+- This plugin only writes a small, well-defined set of fields per bot. It
+  does not intercept `MaintainBotQuota`, `HandleCommand_JoinTeam`,
+  `SameMapTeardown`, or `PackEntities`.
+- CServerSideClient member offsets are compiled in. If a CS2 update moves
+  them, the offsets in `src/ssc_ops.h` and `src/entity_access.cpp` need
+  updating and a rebuild is required.
+- Disconnect-time restore is best-effort. If a bot is removed and re-added
+  in the same tick, the entity may already be gone. A consumer that reads
+  from the shm will see the slot as released and skip re-apply.
+
+## License
+
+MIT.
