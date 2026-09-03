@@ -9,8 +9,11 @@
 #include "shm_pub.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 
 PLUGIN_GLOBALVARS();
 
@@ -20,6 +23,7 @@ SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0,
     CPlayerSlot, const char*, int, uint64);
 SH_DECL_HOOK5_void(IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0,
     CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*);
+SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
 
 PLUGIN_GLOBALVARS();
 BotIdentityPlugin g_BotIdentityPlugin;
@@ -27,6 +31,7 @@ PLUGIN_EXPOSE(BotIdentityPlugin, g_BotIdentityPlugin);
 
 IVEngineServer*     engine      = nullptr;
 IServerGameClients* gameclients = nullptr;
+IServerGameDLL*     gameserver  = nullptr;
 
 static bool s_PluginActive = false;
 
@@ -107,15 +112,26 @@ static void RestoreIdentity(int slot) {
 }  // namespace botid
 
 void BotIdentityPlugin::Hook_OnClientConnected_Post(
-    CPlayerSlot slot, const char* pszName, uint64 /*xuid*/,
+    CPlayerSlot slot, const char* pszName, uint64 xuid,
     const char* /*pszNetworkID*/, const char* /*pszAddress*/, bool bFakePlayer)
 {
     int slotIdx = slot.Get();
     if (!s_PluginActive) RETURN_META(MRES_IGNORED);
-    if (!bFakePlayer) RETURN_META(MRES_IGNORED);
-
     if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
     if (pszName && std::strncmp(pszName, "HLTV", 4) == 0) RETURN_META(MRES_IGNORED);
+
+    // If this slot was previously managed, ALWAYS release the shm state
+    // before we determine whether to re-disguise. This prevents stale
+    // entries from surviving across bot→real-player slot reassignments.
+    if (botid::IdentityMgr().IsManaged(slotIdx)) {
+        botid::IdentityMgr().Unmark(slotIdx);
+        botid::PublishRelease(slotIdx);
+    }
+
+    // Real players have non-zero xuid; bots have xuid=0
+    if (xuid != 0) RETURN_META(MRES_IGNORED);
+    // Also skip real players by bFakePlayer (belt-and-suspenders)
+    if (!bFakePlayer) RETURN_META(MRES_IGNORED);
 
     botid::BotIdentity* identity = botid::BotInfos().GetFree();
     if (!identity) {
@@ -171,9 +187,11 @@ void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
 
 bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late) {
     PLUGIN_SAVEVARS();
+    ismm_ = ismm;
 
     GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
     GET_V_IFACE_ANY(GetServerFactory, gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
+    GET_V_IFACE_ANY(GetEngineFactory, gameserver, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
     // Resolve GameResourceService for entity lookups
@@ -207,6 +225,10 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
 
     META_CONPRINTF("[BotIdentity] hooks installed: gameclients=%p\n", (void*)gameclients);
 
+    SH_ADD_HOOK(IServerGameDLL, GameFrame, gameserver,
+        SH_MEMBER(this, &BotIdentityPlugin::Hook_GameFrame_Post), true);
+
+    srand((unsigned int)time(nullptr));
     s_PluginActive = true;
     return true;
 }
@@ -220,6 +242,8 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
         SH_MEMBER(this, &BotIdentityPlugin::Hook_ClientPutInServer_Post), true);
     SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients,
         SH_MEMBER(this, &BotIdentityPlugin::Hook_ClientDisconnect_Pre), false);
+    SH_REMOVE_HOOK(IServerGameDLL, GameFrame, gameserver,
+        SH_MEMBER(this, &BotIdentityPlugin::Hook_GameFrame_Post), true);
 
     botid::ShutdownSharedMemory();
     META_CONPRINTF("[BotIdentity] unloaded\n");
@@ -227,4 +251,34 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
 }
 
 void BotIdentityPlugin::AllPluginsLoaded() {
+}
+
+void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTick*/, bool /*bLastTick*/) {
+    if (!s_PluginActive) return;
+
+    // Wall-clock based timer that fires every ~30s
+    auto now = std::chrono::steady_clock::now();
+    double nowSec = std::chrono::duration<double>(now.time_since_epoch()).count();
+    if (m_LastJitterTime == 0.0) m_LastJitterTime = nowSec;
+    if (nowSec - m_LastJitterTime < 30.0) return;
+    m_LastJitterTime = nowSec;
+
+    int jitteredCount = 0;
+    for (int slot = 0; slot < botid::kMaxSlots; ++slot) {
+        if (!botid::IdentityMgr().IsManaged(slot)) continue;
+        botid::BotIdentity* identity = botid::IdentityMgr().GetIdentity(slot);
+        if (!identity || identity->ping <= 0) continue;
+
+        int base = identity->ping;
+        int range = (base * 3) / 10; if (range < 2) range = 2;
+        int jitter = base + (rand() % (2 * range + 1)) - range;
+        if (jitter < 5) jitter = 5;
+        if (jitter > 250) jitter = 250;
+
+        botid::PublishPing(slot, jitter);
+        jitteredCount++;
+    }
+    if (jitteredCount > 0) {
+        META_CONPRINTF("[BotIdentity] ping_jitter %d bots\n", jitteredCount);
+    }
 }

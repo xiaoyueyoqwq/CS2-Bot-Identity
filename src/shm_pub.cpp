@@ -44,16 +44,22 @@ static uint32_t* FlairPtr(int slot) {
 bool InitSharedMemory() {
     if (s_ShmView) return true;
 
+    // Try opening existing shm first
     s_ShmFd = shm_open("/CS2BotHider_Slots", O_RDWR, 0600);
-    if (s_ShmFd < 0) {
-        // C# BotHiderImpl may not have created it yet — create ourselves
-        s_ShmFd = shm_open("/CS2BotHider_Slots", O_RDWR | O_CREAT, 0600);
-        if (s_ShmFd < 0) return false;
-        if (ftruncate(s_ShmFd, (off_t)kShmTotalSize) != 0) {
-            close(s_ShmFd);
-            s_ShmFd = -1;
-            return false;
-        }
+    if (s_ShmFd >= 0) {
+        // Unlink and recreate to wipe stale data from prior server runs
+        close(s_ShmFd);
+        s_ShmFd = -1;
+        shm_unlink("/CS2BotHider_Slots");
+    }
+
+    // Create fresh
+    s_ShmFd = shm_open("/CS2BotHider_Slots", O_RDWR | O_CREAT, 0600);
+    if (s_ShmFd < 0) return false;
+    if (ftruncate(s_ShmFd, (off_t)kShmTotalSize) != 0) {
+        close(s_ShmFd);
+        s_ShmFd = -1;
+        return false;
     }
 
     s_ShmView = reinterpret_cast<unsigned char*>(
@@ -64,6 +70,14 @@ bool InitSharedMemory() {
         s_ShmFd = -1;
         return false;
     }
+
+    // Initialize header
+    std::memset(s_ShmView, 0, kShmTotalSize);
+    std::memcpy(s_ShmView + 0,  &kShmMagic,    sizeof(kShmMagic));
+    std::memcpy(s_ShmView + 4,  &kShmVersion, sizeof(kShmVersion));
+    std::memcpy(s_ShmView + 8,  &kShmMaxSlots, sizeof(kShmMaxSlots));
+    msync(s_ShmView, kShmTotalSize, MS_SYNC);
+
     close(s_ShmFd);
     s_ShmFd = -1;
     return true;

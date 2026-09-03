@@ -22,7 +22,6 @@ public:
     const char* GetLogTag() override { return "BOTIDENTITY"; }
 
 private:
-    // Hook callbacks (must be non-static member functions for SH_MEMBER)
     void Hook_OnClientConnected_Post(
         CPlayerSlot slot, const char* pszName, uint64 xuid,
         const char* pszNetworkID, const char* pszAddress, bool bFakePlayer);
@@ -30,6 +29,12 @@ private:
         CPlayerSlot slot, const char* pszName, int type, uint64 xuid);
     void Hook_ClientDisconnect_Pre(
         CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* pszName, uint64 xuid, const char* pszNetworkID);
+    void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
+
+    // Last time we jittered pings, in seconds since epoch (wall-clock)
+    double m_LastJitterTime = 0.0;
+
+    ISmmAPI* ismm_ = nullptr;
 };
 
 enum ENetworkDisconnectionReason : int;
