@@ -37,6 +37,25 @@ static bool s_PluginActive = false;
 
 namespace botid {
 
+static int PickFakePing(const BotIdentity* identity) {
+    const auto& f = BotInfos().Features();
+    if (!f.enableFakePing) return 0;
+    // If features provides an explicit base via per-bot "ping", prefer it
+    if (identity->ping > 0 && identity->ping < f.fakePingMin)
+        return identity->ping;  // small explicit override (e.g. 18)
+    if (f.fakePingMax <= f.fakePingMin) return f.fakePingMin;
+    return f.fakePingMin + (rand() % (f.fakePingMax - f.fakePingMin + 1));
+}
+
+static uint32_t PickScoreboardFlair(const BotIdentity* identity) {
+    const auto& f = BotInfos().Features();
+    if (!f.enableScoreboardFlair) return 0;
+    if (f.scoreboardFlairProbability < 1.0 && (rand() % 1000) >= int(f.scoreboardFlairProbability * 1000.0))
+        return 0;  // probability gate failed
+    if (identity->scoreboardFlair > 0) return identity->scoreboardFlair;
+    return f.defaultScoreboardFlair;  // 0 means no flair
+}
+
 static void ApplyDisguise(int slot, BotIdentity* identity) {
     if (!identity || identity->applied) return;
 
@@ -73,16 +92,19 @@ static void ApplyDisguise(int slot, BotIdentity* identity) {
     identity->applied = true;
 
     // Notify Bot-Improver C# plugins via shared memory
+    const auto& f = BotInfos().Features();
     botid::PublishAdopt(slot, identity->steamId, identity->name.c_str());
     botid::BumpIncarnation(slot);
-    if (identity->ping > 0) {
-        botid::PublishPing(slot, identity->ping);
+    if (f.enableFakePing) {
+        int p = PickFakePing(identity);
+        if (p > 0) botid::PublishPing(slot, p);
     }
-    if (!identity->crosshair.empty()) {
+    if (f.enableCrosshair && !identity->crosshair.empty()) {
         botid::PublishCrosshair(slot, identity->crosshair.c_str());
     }
-    if (identity->scoreboardFlair > 0) {
-        botid::PublishScoreboardFlair(slot, identity->scoreboardFlair);
+    uint32_t flair = PickScoreboardFlair(identity);
+    if (flair > 0) {
+        botid::PublishScoreboardFlair(slot, flair);
     }
 
     META_CONPRINTF("[BotIdentity] disguised slot=%d name='%s' steamid=%llu controller=%s\n",
@@ -214,7 +236,14 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
         ismm->ConPrintf("[BotIdentity] warning: bot_info.json not found at %s\n", configPath.c_str());
     }
 
-    ismm->ConPrintf("[BotIdentity] loaded bot_count=%d\n", botid::BotInfos().Count());
+    ismm->ConPrintf("[BotIdentity] loaded bot_count=%d fakePing=%d-%d jitter=%d%% flair=%.0f%%\n",
+                    botid::BotInfos().Count(),
+                    botid::BotInfos().Features().fakePingMin,
+                    botid::BotInfos().Features().fakePingMax,
+                    botid::BotInfos().Features().pingJitterPercent,
+                    botid::BotInfos().Features().scoreboardFlairProbability * 100.0);
+
+    srand(static_cast<unsigned int>(time(nullptr)));
 
     SH_ADD_HOOK(IServerGameClients, OnClientConnected, gameclients,
         SH_MEMBER(this, &BotIdentityPlugin::Hook_OnClientConnected_Post), true);
@@ -256,6 +285,9 @@ void BotIdentityPlugin::AllPluginsLoaded() {
 void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTick*/, bool /*bLastTick*/) {
     if (!s_PluginActive) return;
 
+    const auto& f = botid::BotInfos().Features();
+    if (!f.enableFakePing) return;
+
     // Wall-clock based timer that fires every ~30s
     auto now = std::chrono::steady_clock::now();
     double nowSec = std::chrono::duration<double>(now.time_since_epoch()).count();
@@ -263,6 +295,7 @@ void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTi
     if (nowSec - m_LastJitterTime < 30.0) return;
     m_LastJitterTime = nowSec;
 
+    int pct = f.pingJitterPercent > 0 ? f.pingJitterPercent : 30;
     int jitteredCount = 0;
     for (int slot = 0; slot < botid::kMaxSlots; ++slot) {
         if (!botid::IdentityMgr().IsManaged(slot)) continue;
@@ -270,7 +303,7 @@ void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTi
         if (!identity || identity->ping <= 0) continue;
 
         int base = identity->ping;
-        int range = (base * 3) / 10; if (range < 2) range = 2;
+        int range = (base * pct) / 100; if (range < 2) range = 2;
         int jitter = base + (rand() % (2 * range + 1)) - range;
         if (jitter < 5) jitter = 5;
         if (jitter > 250) jitter = 250;
@@ -279,6 +312,6 @@ void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTi
         jitteredCount++;
     }
     if (jitteredCount > 0) {
-        META_CONPRINTF("[BotIdentity] ping_jitter %d bots\n", jitteredCount);
+        META_CONPRINTF("[BotIdentity] ping_jitter %d bots (jitter=%d%%)\n", jitteredCount, pct);
     }
 }

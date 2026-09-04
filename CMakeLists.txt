@@ -121,3 +121,9 @@ install(TARGETS BotIdentity
     LIBRARY DESTINATION addons/BotIdentity/bin/${BOTIDENT_PLATFORM_DIR}
     RUNTIME DESTINATION addons/BotIdentity/bin/windows
 )
+
+install(FILES
+    ${CMAKE_SOURCE_DIR}/config.json
+    ${CMAKE_SOURCE_DIR}/gamedata.json
+    DESTINATION addons/BotIdentity
+)

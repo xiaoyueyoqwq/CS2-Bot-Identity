@@ -24,6 +24,24 @@ struct BotIdentity {
     uint16_t reused = 0;  // increments each time this entry is recycled
 };
 
+// Global plugin features, loaded from the top-level "features" key in
+// config.json. Defaults match a "light disguise" profile: a moderate
+// ping range and a low flair probability.
+struct PluginFeatures {
+    bool enableFakePing = true;
+    int fakePingMin = 20;
+    int fakePingMax = 90;
+
+    bool enableScoreboardFlair = true;
+    double scoreboardFlairProbability = 0.3;
+    uint32_t defaultScoreboardFlair = 0;  // 0 = use per-bot value if set
+
+    bool enableCrosshair = true;
+    int pingJitterPercent = 30;  // ±N% per bot per 30s tick
+
+    bool resetShmOnStart = true;  // unlink shm on plugin load
+};
+
 // BotInfo: loads bot identities from JSON config
 class BotInfo {
 public:
@@ -37,8 +55,11 @@ public:
     bool IsSlotActive(int slot);  // check if engine slot has a connected player
     BotIdentity* At(int idx);  // mutable access (for IdentityManager)
 
+    const PluginFeatures& Features() const { return m_Features; }
+
 private:
     std::vector<BotIdentity> m_Bots;
+    PluginFeatures m_Features;
 };
 
 // IdentityManager: tracks which slots are currently managed

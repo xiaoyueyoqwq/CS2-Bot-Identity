@@ -1,4 +1,14 @@
 {
+  "features": {
+    "enableFakePing": true,
+    "fakePingMin": 20,
+    "fakePingMax": 90,
+    "enableScoreboardFlair": true,
+    "scoreboardFlairProbability": 0.3,
+    "enableCrosshair": true,
+    "defaultScoreboardFlair": 0,
+    "pingJitterPercent": 30
+  },
   "bots": {
     "TestBot1": {
       "steamid": 76561198000000001,

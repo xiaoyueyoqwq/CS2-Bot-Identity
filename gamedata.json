@@ -1,0 +1,86 @@
+{
+  "GameResourceServiceServer::m_pEntitySystem": {
+    "offsets": {
+      "windows": 80,
+      "linux": 80
+    },
+    "comment": "resolves the game entity system"
+  },
+  "CEntitySystem::m_EntityList": {
+    "offsets": {
+      "windows": 16,
+      "linux": 16
+    },
+    "comment": "resolves entity identity chunks"
+  },
+  "CEntityIdentity::Size": {
+    "offsets": {
+      "windows": 112,
+      "linux": 112
+    },
+    "comment": "steps through entity identities"
+  },
+  "CEntityIdentity::m_pInstance": {
+    "offsets": {
+      "windows": 0,
+      "linux": 0
+    },
+    "comment": "resolves an entity instance"
+  },
+  "CEntityIdentity::m_designerName": {
+    "offsets": {
+      "windows": 32,
+      "linux": 32
+    },
+    "comment": "resolves an entity class name"
+  },
+  "CNetworkGameServerBase::m_Clients": {
+    "offsets": {
+      "windows": 584,
+      "linux": 584
+    },
+    "comment": "CUtlVector<CServerSideClient*> base offset"
+  },
+  "CBasePlayerController::FakeClientFlags": {
+    "offsets": {
+      "windows": 904,
+      "linux": 904
+    },
+    "comment": "controller fakeclient flags"
+  },
+  "CServerSideClient::m_nEntityIndex": {
+    "offsets": {
+      "windows": 76,
+      "linux": 76
+    },
+    "comment": "entity index"
+  },
+  "CServerSideClient::m_nConnectionTypeFlags": {
+    "offsets": {
+      "windows": 96,
+      "linux": 96
+    },
+    "comment": "connection-type byte"
+  },
+  "CServerSideClient::m_bFakePlayer": {
+    "offsets": {
+      "windows": 160,
+      "linux": 160
+    },
+    "comment": "fake player flag"
+  },
+  "CServerSideClient::m_SteamID": {
+    "offsets": {
+      "windows": 171,
+      "linux": 171
+    },
+    "comment": "steam id"
+  },
+  "CServerSideClient::m_SteamIDMirror": {
+    "offsets": {
+      "windows": 179,
+      "linux": 179
+    },
+    "comment": "second identity steam id"
+  }
+}

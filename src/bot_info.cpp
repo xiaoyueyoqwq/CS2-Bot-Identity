@@ -46,8 +46,62 @@ static uint64_t ReadUInt64(const std::string& s, size_t& i) {
     return v;
 }
 
+static double ReadDouble(const std::string& s, size_t& i) {
+    SkipWhitespace(s, i);
+    // Read integer part
+    double v = 0.0;
+    while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+        v = v * 10.0 + double(s[i] - '0');
+        ++i;
+    }
+    if (i < s.size() && s[i] == '.') {
+        ++i;
+        double frac = 0.1;
+        while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+            v += double(s[i] - '0') * frac;
+            frac *= 0.1;
+            ++i;
+        }
+    }
+    return v;
+}
+
 static std::string ReadKey(const std::string& s, size_t& i) {
     return ReadString(s, i);
+}
+
+// Read a top-level block: { k1:v1, k2:v2, ... }
+static void ReadBlock(const std::string& json, size_t& i,
+                       std::function<void(const std::string& k)> on_key) {
+    if (!MatchChar(json, i, '{')) return;
+    while (SkipWhitespace(json, i) && json[i] != '}') {
+        std::string k = ReadKey(json, i);
+        if (k.empty()) break;
+        if (!MatchChar(json, i, ':')) break;
+        if (on_key) on_key(k);
+        if (json[i] == '{') {
+            // skip nested object
+            int depth = 1;
+            while (i < json.size() && depth > 0) {
+                if (json[i] == '{') ++depth;
+                else if (json[i] == '}') --depth;
+                ++i;
+            }
+        } else if (json[i] == '[') {
+            // skip nested array
+            int depth = 1;
+            while (i < json.size() && depth > 0) {
+                if (json[i] == '[') ++depth;
+                else if (json[i] == ']') --depth;
+                ++i;
+            }
+        } else {
+            // skip scalar
+            while (i < json.size() && json[i] != ',' && json[i] != '}') ++i;
+        }
+        if (!MatchChar(json, i, ',')) break;
+    }
+    MatchChar(json, i, '}');
 }
 
 bool BotInfo::Load(const char* path) {
@@ -64,44 +118,78 @@ bool BotInfo::Load(const char* path) {
         if (key.empty()) break;
         if (!MatchChar(json, i, ':')) break;
 
-        if (key == "bots") {
-            if (!MatchChar(json, i, '{')) break;
-            while (SkipWhitespace(json, i) && json[i] != '}') {
-                std::string botName = ReadKey(json, i);
-                if (botName.empty()) break;
-                if (!MatchChar(json, i, ':')) break;
-                if (!MatchChar(json, i, '{')) break;
-
+        if (key == "features") {
+            ReadBlock(json, i, [&](const std::string& fk) {
+                if (fk == "enableFakePing") {
+                    SkipWhitespace(json, i);
+                    m_Features.enableFakePing = (json[i] == 't' || json[i] == '1');
+                    while (i < json.size() && json[i] != ',' && json[i] != '}') ++i;
+                } else if (fk == "fakePingMin") {
+                    m_Features.fakePingMin = (int)ReadUInt64(json, i);
+                } else if (fk == "fakePingMax") {
+                    m_Features.fakePingMax = (int)ReadUInt64(json, i);
+                } else if (fk == "enableScoreboardFlair") {
+                    SkipWhitespace(json, i);
+                    m_Features.enableScoreboardFlair = (json[i] == 't' || json[i] == '1');
+                    while (i < json.size() && json[i] != ',' && json[i] != '}') ++i;
+                } else if (fk == "scoreboardFlairProbability") {
+                    m_Features.scoreboardFlairProbability = ReadDouble(json, i);
+                } else if (fk == "enableCrosshair") {
+                    SkipWhitespace(json, i);
+                    m_Features.enableCrosshair = (json[i] == 't' || json[i] == '1');
+                    while (i < json.size() && json[i] != ',' && json[i] != '}') ++i;
+                } else if (fk == "defaultScoreboardFlair") {
+                    m_Features.defaultScoreboardFlair = (uint32_t)ReadUInt64(json, i);
+                } else if (fk == "pingJitterPercent") {
+                    m_Features.pingJitterPercent = (int)ReadUInt64(json, i);
+                }
+            });
+        } else if (key == "bots") {
+            ReadBlock(json, i, [&](const std::string& botName) {
                 BotIdentity bi;
                 bi.name = botName;
                 bi.steamId = kSteamIdBase + static_cast<uint64_t>(m_Bots.size());
                 bi.slot = -1;
                 bi.applied = false;
 
-                while (SkipWhitespace(json, i) && json[i] != '}') {
-                    std::string fk = ReadKey(json, i);
-                    if (fk.empty()) break;
-                    if (!MatchChar(json, i, ':')) break;
-                    if (fk == "steamid") {
-                        bi.steamId = ReadUInt64(json, i);
-                    } else if (fk == "name") {
-                        bi.name = ReadString(json, i);
-                    } else if (fk == "ping") {
-                        bi.ping = (int)ReadUInt64(json, i);
-                    } else if (fk == "crosshair") {
-                        bi.crosshair = ReadString(json, i);
-                    } else if (fk == "scoreboardFlair") {
-                        bi.scoreboardFlair = (uint32_t)ReadUInt64(json, i);
+                if (MatchChar(json, i, '{')) {
+                    while (SkipWhitespace(json, i) && json[i] != '}') {
+                        std::string fk = ReadKey(json, i);
+                        if (fk.empty()) break;
+                        if (!MatchChar(json, i, ':')) break;
+                        if (fk == "steamid") {
+                            bi.steamId = ReadUInt64(json, i);
+                        } else if (fk == "name") {
+                            bi.name = ReadString(json, i);
+                        } else if (fk == "ping") {
+                            bi.ping = (int)ReadUInt64(json, i);
+                        } else if (fk == "crosshair") {
+                            bi.crosshair = ReadString(json, i);
+                        } else if (fk == "scoreboardFlair") {
+                            bi.scoreboardFlair = (uint32_t)ReadUInt64(json, i);
+                        }
+                        if (!MatchChar(json, i, ',')) break;
                     }
-                    if (!MatchChar(json, i, ',')) break;
+                    MatchChar(json, i, '}');
                 }
-                if (!MatchChar(json, i, '}')) break;
+
                 if (m_Bots.size() < static_cast<size_t>(kMaxBotIdentities)) {
                     m_Bots.push_back(bi);
                 }
-                if (!MatchChar(json, i, ',')) break;
+            });
+        } else {
+            // Unknown top-level key: skip it
+            if (json[i] == '{') {
+                int depth = 1; while (++i < json.size() && depth > 0) {
+                    if (json[i] == '{') ++depth; else if (json[i] == '}') --depth;
+                } ++i;
+            } else if (json[i] == '[') {
+                int depth = 1; while (++i < json.size() && depth > 0) {
+                    if (json[i] == '[') ++depth; else if (json[i] == ']') --depth;
+                } ++i;
+            } else {
+                while (i < json.size() && json[i] != ',' && json[i] != '}') ++i;
             }
-            if (!MatchChar(json, i, '}')) break;
         }
         if (!MatchChar(json, i, ',')) break;
     }
