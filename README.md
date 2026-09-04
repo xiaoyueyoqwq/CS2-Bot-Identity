@@ -25,19 +25,57 @@ slot release to the same shm region.
 ```
 CS2-Bot-Identity/
 ├── src/
-│   ├── plugin.cpp        ── IServerGameClients hooks, lifecycle
+│   ├── plugin.cpp        ── IServerGameClients + IServerGameDLL hooks, lifecycle
 │   ├── ssc_ops.h         ── ClearFakePlayer / SetFakePlayer / WriteSteamId
 │   ├── entity_access.cpp ── resolve CServerSideClient* and entity controller
-│   ├── bot_info.cpp      ── bot_info.json parser
+│   ├── bot_info.cpp      ── JSON parsers for config.json / bots.json
 │   └── shm_pub.cpp       ── shm region creator + data publishers
 ├── CMakeLists.txt
-├── config.json           ── per-bot identity (name, steamid, ping, crosshair, flair)
+├── config.json           ── plugin-wide feature toggles
+├── bots.json             ── per-bot identity list
+├── gamedata.json         ── memory-offset overrides
 └── README.md
 ```
 
 ## Configuration
 
-`config.json`:
+Two files. The plugin loads both at startup; either may be omitted (defaults
+apply).
+
+### `config.json` — plugin-wide feature toggles
+
+```json
+{
+  "features": {
+    "enableFakePing": true,
+    "fakePingMin": 20,
+    "fakePingMax": 90,
+    "enableScoreboardFlair": true,
+    "scoreboardFlairProbability": 0.3,
+    "enableCrosshair": true,
+    "defaultScoreboardFlair": 0,
+    "pingJitterPercent": 30
+  }
+}
+```
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `enableFakePing` | bool | true | Master switch for ping overrides |
+| `fakePingMin` | int | 20 | Low end of random sample range |
+| `fakePingMax` | int | 90 | High end of random sample range |
+| `enableScoreboardFlair` | bool | true | Master switch for scoreboard flair |
+| `scoreboardFlairProbability` | double | 0.3 | Per-bot roll for flair assignment (0.0–1.0) |
+| `enableCrosshair` | bool | true | Master switch for crosshair code |
+| `defaultScoreboardFlair` | uint32 | 0 | Fallback flair when per-bot value is unset |
+| `pingJitterPercent` | int | 30 | ±N% per-bot ping jitter applied every 30s |
+
+Per-bot overrides take precedence: if a bot has `"ping": 18` in `bots.json`
+and `18 < fakePingMin`, the bot keeps 18 as its base, then the jitter
+applies. If the per-bot value falls within the range, the range is used
+instead.
+
+### `bots.json` — per-bot identity list
 
 ```json
 {
@@ -57,7 +95,7 @@ CS2-Bot-Identity/
 |---|---|---|---|
 | `steamid` | uint64 | yes | Synthetic SteamID written to `m_SteamID` |
 | `name` | string | yes | Persona name (32 bytes NUL-padded UTF-8) |
-| `ping` | int | no | When > 0, written to `CCSPlayerController::m_iPing` |
+| `ping` | int | no | Base ping value; out-of-range treated as override |
 | `crosshair` | string | no | Crosshair code (64 bytes) |
 | `scoreboardFlair` | uint32 | no | ItemDefIndex written to `InventoryServices::m_rank[]` |
 
@@ -79,6 +117,7 @@ make
 ```bash
 cp BotIdentity.so <server>/game/csgo/addons/BotIdentity/bin/linuxsteamrt64/
 cp config.json    <server>/game/csgo/addons/BotIdentity/
+cp bots.json      <server>/game/csgo/addons/BotIdentity/
 cp BotIdentity.vdf <server>/game/csgo/addons/metamod/
 # addons/metamod/BotIdentity.vdf points to the .so path
 ```
