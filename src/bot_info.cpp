@@ -268,38 +268,49 @@ static void ResetForReuse(BotIdentity& b) {
     b.reused = static_cast<uint16_t>(b.reused + 1);
 }
 
+// Returns true if a bot with this name is currently active (slot != -1).
+// Prevents two live bots from sharing a persona name in the same match.
+static bool IsNameInUse(const std::vector<BotIdentity>& bots, const std::string& name) {
+    for (const auto& b : bots) {
+        if (b.slot >= 0 && b.applied && b.name == name) return true;
+    }
+    return false;
+}
+
 BotIdentity* BotInfo::GetFree() {
-    // Build list of all free entries (slot == -1), then pick one at random
-    // so the bot roster isn't always served in JSON-array order.
+    // Build a list of candidates: free entries (slot == -1) whose name
+    // is not currently used by another live bot. Pick one at random.
     int freeCount = 0;
     for (int i = 0; i < Count(); ++i) {
-        if (m_Bots[i].slot < 0) ++freeCount;
+        if (m_Bots[i].slot < 0 && !IsNameInUse(m_Bots, m_Bots[i].name)) ++freeCount;
     }
     if (freeCount > 0) {
         int pick = rand() % freeCount;
         for (int i = 0; i < Count(); ++i) {
-            if (m_Bots[i].slot < 0) {
+            if (m_Bots[i].slot < 0 && !IsNameInUse(m_Bots, m_Bots[i].name)) {
                 if (pick == 0) return &m_Bots[i];
                 --pick;
             }
         }
     }
-    // All in use — find one whose slot is no longer valid
+    // All in use — find one whose slot is no longer valid, also dedup by name
     for (int i = 0; i < Count(); ++i) {
         int s = m_Bots[i].slot;
-        if (s < 0 || s >= 64) {
+        if ((s < 0 || s >= 64) && !IsNameInUse(m_Bots, m_Bots[i].name)) {
             ResetForReuse(m_Bots[i]);
             return &m_Bots[i];
         }
-        // If slot isn't actually a bot anymore, recycle
-        if (!IsSlotActive(s)) {
+        if (s >= 0 && s < 64 && !IsSlotActive(s) && !IsNameInUse(m_Bots, m_Bots[i].name)) {
             ResetForReuse(m_Bots[i]);
             return &m_Bots[i];
         }
     }
-    // All slots valid — pick a random one to recycle (handles over-quota joins)
+    // Everything is exhausted — fall back to a random recycle even
+    // if the name collides. (This branch is the only path that may
+    // produce duplicate names; it should not run in normal operation.)
     int n = Count();
-    int pick = (n > 0) ? (rand() % n) : 0;
+    if (n <= 0) return nullptr;
+    int pick = rand() % n;
     ResetForReuse(m_Bots[pick]);
     return &m_Bots[pick];
 }
