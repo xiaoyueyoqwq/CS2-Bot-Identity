@@ -124,6 +124,7 @@ install(TARGETS BotIdentity
 
 install(FILES
     ${CMAKE_SOURCE_DIR}/config.json
+    ${CMAKE_SOURCE_DIR}/bots.json
     ${CMAKE_SOURCE_DIR}/gamedata.json
     DESTINATION addons/BotIdentity
 )

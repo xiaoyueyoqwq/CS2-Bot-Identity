@@ -144,7 +144,45 @@ bool BotInfo::Load(const char* path) {
                     m_Features.pingJitterPercent = (int)ReadUInt64(json, i);
                 }
             });
-        } else if (key == "bots") {
+        } else {
+            // Unknown top-level key: skip it
+            if (json[i] == '{') {
+                int depth = 1; while (++i < json.size() && depth > 0) {
+                    if (json[i] == '{') ++depth; else if (json[i] == '}') --depth;
+                } ++i;
+            } else if (json[i] == '[') {
+                int depth = 1; while (++i < json.size() && depth > 0) {
+                    if (json[i] == '[') ++depth; else if (json[i] == ']') --depth;
+                } ++i;
+            } else {
+                while (i < json.size() && json[i] != ',' && json[i] != '}') ++i;
+            }
+        }
+        if (!MatchChar(json, i, ',')) break;
+    }
+    MatchChar(json, i, '}');
+    return true;
+}
+
+bool BotInfo::LoadFeatures(const char* path) {
+    return Load(path);  // config.json 只含 features，Load 已处理
+}
+
+bool BotInfo::LoadBots(const char* path) {
+    std::ifstream f(path);
+    if (!f) return false;
+    std::stringstream ss; ss << f.rdbuf();
+    std::string json = ss.str();
+    size_t i = 0;
+
+    if (!MatchChar(json, i, '{')) return false;
+
+    while (SkipWhitespace(json, i) && json[i] != '}') {
+        std::string key = ReadKey(json, i);
+        if (key.empty()) break;
+        if (!MatchChar(json, i, ':')) break;
+
+        if (key == "bots") {
             ReadBlock(json, i, [&](const std::string& botName) {
                 BotIdentity bi;
                 bi.name = botName;
@@ -178,7 +216,7 @@ bool BotInfo::Load(const char* path) {
                 }
             });
         } else {
-            // Unknown top-level key: skip it
+            // Unknown: skip
             if (json[i] == '{') {
                 int depth = 1; while (++i < json.size() && depth > 0) {
                     if (json[i] == '{') ++depth; else if (json[i] == '}') --depth;

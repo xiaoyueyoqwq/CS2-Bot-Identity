@@ -230,11 +230,13 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
     gamedataPath += "/addons/BotIdentity/gamedata.json";
     botid::LoadGamedata(gamedataPath.c_str());
 
-    std::string configPath = ismm->GetBaseDir();
-    configPath += "/addons/BotIdentity/bot_info.json";
-    if (!botid::BotInfos().Load(configPath.c_str())) {
-        ismm->ConPrintf("[BotIdentity] warning: bot_info.json not found at %s\n", configPath.c_str());
-    }
+    std::string baseDir = ismm->GetBaseDir();
+
+    std::string featuresPath = baseDir + "/addons/BotIdentity/config.json";
+    botid::BotInfos().LoadFeatures(featuresPath.c_str());
+
+    std::string botsPath = baseDir + "/addons/BotIdentity/bots.json";
+    botid::BotInfos().LoadBots(botsPath.c_str());
 
     ismm->ConPrintf("[BotIdentity] loaded bot_count=%d fakePing=%d-%d jitter=%d%% flair=%.0f%%\n",
                     botid::BotInfos().Count(),

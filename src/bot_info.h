@@ -48,6 +48,8 @@ public:
     BotInfo() = default;
 
     bool Load(const char* path);
+    bool LoadFeatures(const char* path);
+    bool LoadBots(const char* path);
     int Count() const { return static_cast<int>(m_Bots.size()); }
     const BotIdentity* GetByIndex(int idx) const;
     const BotIdentity* GetByName(const char* name) const;
