@@ -4,9 +4,10 @@
 
 #include "plugin.h"
 #include "bot_info.h"
-#include "ssc_ops.h"
 #include "entity_access.h"
 #include "shm_pub.h"
+#include "ssc_ops.h"
+#include "vote_transaction.h"
 
 #include <algorithm>
 #include <chrono>
@@ -24,6 +25,7 @@ SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0,
 SH_DECL_HOOK5_void(IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0,
     CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*);
 SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
+SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0, ConCommandRef, const CCommandContext&, const CCommand&);
 
 PLUGIN_GLOBALVARS();
 BotIdentityPlugin g_BotIdentityPlugin;
@@ -32,6 +34,7 @@ PLUGIN_EXPOSE(BotIdentityPlugin, g_BotIdentityPlugin);
 IVEngineServer*     engine      = nullptr;
 IServerGameClients* gameclients = nullptr;
 IServerGameDLL*     gameserver  = nullptr;
+ICvar*              icvar       = nullptr;
 
 static bool s_PluginActive = false;
 
@@ -148,6 +151,7 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
     if (botid::IdentityMgr().IsManaged(slotIdx)) {
         botid::IdentityMgr().Unmark(slotIdx);
         botid::PublishRelease(slotIdx);
+        botid::ResetVoteTransactionSlot(slotIdx);
     }
 
     // Real players have non-zero xuid; bots have xuid=0
@@ -201,6 +205,10 @@ void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
     if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
     if (!botid::IdentityMgr().IsManaged(slotIdx)) RETURN_META(MRES_IGNORED);
 
+    // A vote transaction may hold a snapshot for this slot; drop it before
+    // the entity goes away so the restore path cannot touch freed objects.
+    botid::ResetVoteTransactionSlot(slotIdx);
+
     botid::RestoreIdentity(slotIdx);
     botid::IdentityMgr().Unmark(slotIdx);
 
@@ -212,6 +220,12 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
     ismm_ = ismm;
 
     GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
+    GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
+
+    // tier1/convar.cpp (compiled into this .so) dereferences its own g_pCVar
+    // global inside ConCommandRef::GetName()/GetRawData(); it must be set
+    // before the DispatchConCommand hooks below can safely run.
+    g_pCVar = icvar;
     GET_V_IFACE_ANY(GetServerFactory, gameclients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
     GET_V_IFACE_ANY(GetEngineFactory, gameserver, IServerGameDLL, INTERFACEVERSION_SERVERGAMEDLL);
     GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
@@ -259,6 +273,11 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
     SH_ADD_HOOK(IServerGameDLL, GameFrame, gameserver,
         SH_MEMBER(this, &BotIdentityPlugin::Hook_GameFrame_Post), true);
 
+    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
+        SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Pre), false);
+    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
+        SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Post), true);
+
     srand((unsigned int)time(nullptr));
     s_PluginActive = true;
     return true;
@@ -266,6 +285,8 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
 
 bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
     s_PluginActive = false;
+
+    botid::ResetVoteTransaction();
 
     SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients,
         SH_MEMBER(this, &BotIdentityPlugin::Hook_OnClientConnected_Post), true);
@@ -275,6 +296,10 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
         SH_MEMBER(this, &BotIdentityPlugin::Hook_ClientDisconnect_Pre), false);
     SH_REMOVE_HOOK(IServerGameDLL, GameFrame, gameserver,
         SH_MEMBER(this, &BotIdentityPlugin::Hook_GameFrame_Post), true);
+    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,
+        SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Pre), false);
+    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,
+        SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Post), true);
 
     botid::ShutdownSharedMemory();
     META_CONPRINTF("[BotIdentity] unloaded\n");
@@ -282,6 +307,26 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
 }
 
 void BotIdentityPlugin::AllPluginsLoaded() {
+}
+
+void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
+    ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& /*arguments*/)
+{
+    if (!s_PluginActive || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
+    if (!std::strcmp(command.GetName(), "callvote")) {
+        botid::BeginVoteTransaction();
+    }
+    RETURN_META(MRES_IGNORED);
+}
+
+void BotIdentityPlugin::Hook_DispatchConCommand_Post(
+    ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& /*arguments*/)
+{
+    if (!command.IsValidRef() || std::strcmp(command.GetName(), "callvote") != 0) RETURN_META(MRES_IGNORED);
+    if (botid::VoteTransactionActive()) {
+        botid::EndVoteTransaction();
+    }
+    RETURN_META(MRES_IGNORED);
 }
 
 void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTick*/, bool /*bLastTick*/) {

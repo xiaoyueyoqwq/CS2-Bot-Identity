@@ -4,6 +4,10 @@
 #include <playerslot.h>
 #include <string>
 
+class ConCommandRef;
+class CCommandContext;
+class CCommand;
+
 class BotIdentityPlugin : public ISmmPlugin, public IMetamodListener {
 public:
     bool Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late) override;
@@ -30,10 +34,13 @@ private:
     void Hook_ClientDisconnect_Pre(
         CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* pszName, uint64 xuid, const char* pszNetworkID);
     void Hook_GameFrame_Post(bool simulating, bool bFirstTick, bool bLastTick);
+    void Hook_DispatchConCommand_Pre(ConCommandRef command, const CCommandContext& ctx, const CCommand& arguments);
+    void Hook_DispatchConCommand_Post(ConCommandRef command, const CCommandContext& ctx, const CCommand& arguments);
 
     // Last time we jittered pings, in seconds since epoch (wall-clock)
     double m_LastJitterTime = 0.0;
 
+public:
     ISmmAPI* ismm_ = nullptr;
 };
 
