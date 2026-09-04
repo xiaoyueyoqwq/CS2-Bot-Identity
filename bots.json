@@ -18,6 +18,356 @@
       "steamid": 76561198000000003,
       "name": "Test Bot 3",
       "ping": 18
+    },
+    "Bot01": {
+      "steamid": 76561197961483905,
+      "name": "henry",
+      "ping": 62,
+      "crosshair": "CSGO-M9OZ1-5NPW6-SY5O0-LAMEI-G4Y7V",
+      "scoreboardFlair": 2481
+    },
+    "Bot02": {
+      "steamid": 76561197963198459,
+      "name": "emma",
+      "ping": 25,
+      "crosshair": "CSGO-XWYWH-KQ62L-2VP2T-1TX4H-9TT1B",
+      "scoreboardFlair": 0
+    },
+    "Bot03": {
+      "steamid": 76561197963481384,
+      "name": "elias_w8",
+      "ping": 82,
+      "crosshair": "",
+      "scoreboardFlair": 2153
+    },
+    "Bot04": {
+      "steamid": 76561197964580533,
+      "name": "leon18",
+      "ping": 41,
+      "crosshair": "",
+      "scoreboardFlair": 4120
+    },
+    "Bot05": {
+      "steamid": 76561197966498916,
+      "name": "ben",
+      "ping": 74,
+      "crosshair": "CSGO-57P0F-WMCMY-VZGRW-TFZ4O-H1WPF",
+      "scoreboardFlair": 2153
+    },
+    "Bot06": {
+      "steamid": 76561197967549327,
+      "name": "oliver_z9",
+      "ping": 44,
+      "crosshair": "CSGO-7T25I-KPNWF-31I3D-YM4JS-VNF4S",
+      "scoreboardFlair": 2484
+    },
+    "Bot07": {
+      "steamid": 76561197968397843,
+      "name": "Weicheng Zhang",
+      "ping": 82,
+      "crosshair": "CSGO-LJ8YY-F1YBU-KFQC5-0RQZG-GIIBW",
+      "scoreboardFlair": 0
+    },
+    "Bot08": {
+      "steamid": 76561197969144324,
+      "name": "Tom Fischer",
+      "ping": 74,
+      "crosshair": "",
+      "scoreboardFlair": 2153
+    },
+    "Bot09": {
+      "steamid": 76561197970579610,
+      "name": "yuto",
+      "ping": 44,
+      "crosshair": "CSGO-DFXOV-76PYO-4Q0CC-XEJNA-36IT7",
+      "scoreboardFlair": 0
+    },
+    "Bot10": {
+      "steamid": 76561197971631556,
+      "name": "Alex Olsen",
+      "ping": 20,
+      "crosshair": "CSGO-N1L1C-1B12W-OGRYG-CG8X2-FHVCI",
+      "scoreboardFlair": 2483
+    },
+    "Bot11": {
+      "steamid": 76561197971837864,
+      "name": "kyle",
+      "ping": 59,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot12": {
+      "steamid": 76561197972940500,
+      "name": "noa72_k5",
+      "ping": 23,
+      "crosshair": "CSGO-LZDTZ-CYOBO-9BWPQ-9VWU8-D9Y10",
+      "scoreboardFlair": 2480
+    },
+    "Bot13": {
+      "steamid": 76561197974065447,
+      "name": "Jun Khan",
+      "ping": 53,
+      "crosshair": "CSGO-CWFVR-22YKJ-015FZ-FXC2E-HCSWU",
+      "scoreboardFlair": 2481
+    },
+    "Bot14": {
+      "steamid": 76561197975163855,
+      "name": "Alex Park",
+      "ping": 47,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot15": {
+      "steamid": 76561197976519127,
+      "name": "gabriel_k4",
+      "ping": 25,
+      "crosshair": "CSGO-MD61J-J55BF-RR2MV-9XPV5-T0HSY",
+      "scoreboardFlair": 5226
+    },
+    "Bot16": {
+      "steamid": 76561197977481393,
+      "name": "Sam Li",
+      "ping": 68,
+      "crosshair": "CSGO-JEXJS-DWEYE-EFN8M-PA7D0-WQBCU",
+      "scoreboardFlair": 2481
+    },
+    "Bot17": {
+      "steamid": 76561197979139519,
+      "name": "jun",
+      "ping": 27,
+      "crosshair": "CSGO-SAZLF-3IVKM-LW3MG-T9ODP-I1CAZ",
+      "scoreboardFlair": 0
+    },
+    "Bot18": {
+      "steamid": 76561197980158874,
+      "name": "Alex Olsen",
+      "ping": 42,
+      "crosshair": "CSGO-WLAKI-RDBAI-WUKPS-AYLQV-U4W37",
+      "scoreboardFlair": 0
+    },
+    "Bot19": {
+      "steamid": 76561197980960805,
+      "name": "Henry Nguyen",
+      "ping": 40,
+      "crosshair": "CSGO-LOQ9S-PFY9W-M417I-JW64D-LWUEY",
+      "scoreboardFlair": 4320
+    },
+    "Bot20": {
+      "steamid": 76561197981545117,
+      "name": "kasper",
+      "ping": 32,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot21": {
+      "steamid": 76561197982600224,
+      "name": "kasper_l7",
+      "ping": 86,
+      "crosshair": "CSGO-9LSMT-82L3Q-7PEB8-9Z0DY-I0GTN",
+      "scoreboardFlair": 0
+    },
+    "Bot22": {
+      "steamid": 76561197983662195,
+      "name": "Ada Tanaka",
+      "ping": 74,
+      "crosshair": "CSGO-65JL5-J6NW5-S4GSL-949QP-KY7EK",
+      "scoreboardFlair": 0
+    },
+    "Bot23": {
+      "steamid": 76561197985274493,
+      "name": "carlos_z1",
+      "ping": 54,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot24": {
+      "steamid": 76561197986419710,
+      "name": "maria_s8",
+      "ping": 43,
+      "crosshair": "CSGO-4TAN5-4XMWV-I08JH-YY5XX-BWYAS",
+      "scoreboardFlair": 5210
+    },
+    "Bot25": {
+      "steamid": 76561197987241220,
+      "name": "Viktor Novak",
+      "ping": 85,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot26": {
+      "steamid": 76561197987768840,
+      "name": "weicheng_w3",
+      "ping": 51,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot27": {
+      "steamid": 76561197989595060,
+      "name": "Oliver Nguyen",
+      "ping": 34,
+      "crosshair": "CSGO-UOBJP-2Y0RW-SQMOZ-NQC6J-RSBQ5",
+      "scoreboardFlair": 3226
+    },
+    "Bot28": {
+      "steamid": 76561197990531838,
+      "name": "Lucas Wang",
+      "ping": 70,
+      "crosshair": "",
+      "scoreboardFlair": 2853
+    },
+    "Bot29": {
+      "steamid": 76561197991242122,
+      "name": "noa_k7",
+      "ping": 48,
+      "crosshair": "CSGO-DHWSW-SOTT8-A1TL0-DRITU-ZILC5",
+      "scoreboardFlair": 0
+    },
+    "Bot30": {
+      "steamid": 76561197992340236,
+      "name": "noa22",
+      "ping": 31,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot31": {
+      "steamid": 76561197993064482,
+      "name": "kappa37",
+      "ping": 69,
+      "crosshair": "CSGO-H7W0K-23LDB-COQWW-SEW5N-FQQZA",
+      "scoreboardFlair": 0
+    },
+    "Bot32": {
+      "steamid": 76561197994159264,
+      "name": "ali87",
+      "ping": 81,
+      "crosshair": "CSGO-J4K3F-JRB44-6Z2AN-IFJTG-7JRT5",
+      "scoreboardFlair": 0
+    },
+    "Bot33": {
+      "steamid": 76561197995848463,
+      "name": "noa",
+      "ping": 80,
+      "crosshair": "CSGO-O1ZJ6-XC0Q3-8WNHS-GYB8I-TJ7L5",
+      "scoreboardFlair": 0
+    },
+    "Bot34": {
+      "steamid": 76561197996781767,
+      "name": "weicheng",
+      "ping": 30,
+      "crosshair": "CSGO-PBTCN-A6CVN-IPXJT-LQG51-FQI9T",
+      "scoreboardFlair": 0
+    },
+    "Bot35": {
+      "steamid": 76561197997971484,
+      "name": "Elias Lopez",
+      "ping": 63,
+      "crosshair": "CSGO-EIQ17-04NG5-YVFN2-HHE0X-7PC87",
+      "scoreboardFlair": 2153
+    },
+    "Bot36": {
+      "steamid": 76561197998832757,
+      "name": "ali_w4",
+      "ping": 47,
+      "crosshair": "CSGO-89H1C-H3WQ4-AV7JP-948I3-9ES4U",
+      "scoreboardFlair": 2480
+    },
+    "Bot37": {
+      "steamid": 76561197999949954,
+      "name": "sofia",
+      "ping": 67,
+      "crosshair": "",
+      "scoreboardFlair": 2153
+    },
+    "Bot38": {
+      "steamid": 76561198000815217,
+      "name": "Daniel Wang",
+      "ping": 55,
+      "crosshair": "CSGO-ZVNEC-XDI3U-PMGVH-1LKM4-B8C02",
+      "scoreboardFlair": 4321
+    },
+    "Bot39": {
+      "steamid": 76561198001513059,
+      "name": "jun_l1",
+      "ping": 88,
+      "crosshair": "CSGO-8Z7D9-OSO1Q-50YBM-HYQE6-4XFOU",
+      "scoreboardFlair": 0
+    },
+    "Bot40": {
+      "steamid": 76561198002625258,
+      "name": "Niels Wang",
+      "ping": 87,
+      "crosshair": "CSGO-LA9CZ-ODHPU-Y222S-HQDSL-O76BR",
+      "scoreboardFlair": 0
+    },
+    "Bot41": {
+      "steamid": 76561198004217634,
+      "name": "Haruki Lopez",
+      "ping": 83,
+      "crosshair": "CSGO-VW5FE-DIDWR-DIIP4-ZOGF7-A11GN",
+      "scoreboardFlair": 4661
+    },
+    "Bot42": {
+      "steamid": 76561198005026619,
+      "name": "ada_t9",
+      "ping": 73,
+      "crosshair": "",
+      "scoreboardFlair": 2483
+    },
+    "Bot43": {
+      "steamid": 76561198006379691,
+      "name": "ace99_o7",
+      "ping": 73,
+      "crosshair": "CSGO-EDCH2-9CKTK-6YDIN-DA2Z6-MX2XL",
+      "scoreboardFlair": 3226
+    },
+    "Bot44": {
+      "steamid": 76561198007017584,
+      "name": "elias_n9",
+      "ping": 68,
+      "crosshair": "CSGO-F98WE-SKJTT-N1RQ7-ZKHLY-ELA2A",
+      "scoreboardFlair": 0
+    },
+    "Bot45": {
+      "steamid": 76561198008164424,
+      "name": "oliver",
+      "ping": 62,
+      "crosshair": "",
+      "scoreboardFlair": 2153
+    },
+    "Bot46": {
+      "steamid": 76561198009266373,
+      "name": "Emma Smirnov",
+      "ping": 38,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot47": {
+      "steamid": 76561198009693561,
+      "name": "oliver72",
+      "ping": 64,
+      "crosshair": "",
+      "scoreboardFlair": 3825
+    },
+    "Bot48": {
+      "steamid": 76561198010745770,
+      "name": "lukas",
+      "ping": 83,
+      "crosshair": "CSGO-DU7ZY-L48TF-3Y1UO-HZIQX-MRNHM",
+      "scoreboardFlair": 3226
+    },
+    "Bot49": {
+      "steamid": 76561198011990526,
+      "name": "ali",
+      "ping": 58,
+      "crosshair": "CSGO-BANKY-N7P93-AA5UL-AHNYN-RLY0J",
+      "scoreboardFlair": 1370
+    },
+    "Bot50": {
+      "steamid": 76561198013574735,
+      "name": "liam12",
+      "ping": 90,
+      "crosshair": "",
+      "scoreboardFlair": 1370
     }
   }
 }
