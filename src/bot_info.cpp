@@ -269,11 +269,22 @@ static void ResetForReuse(BotIdentity& b) {
 }
 
 BotIdentity* BotInfo::GetFree() {
-    // First pass: return any unused entry
+    // Build list of all free entries (slot == -1), then pick one at random
+    // so the bot roster isn't always served in JSON-array order.
+    int freeCount = 0;
     for (int i = 0; i < Count(); ++i) {
-        if (m_Bots[i].slot < 0) return &m_Bots[i];
+        if (m_Bots[i].slot < 0) ++freeCount;
     }
-    // Second pass: all in use — find one whose slot is no longer valid
+    if (freeCount > 0) {
+        int pick = rand() % freeCount;
+        for (int i = 0; i < Count(); ++i) {
+            if (m_Bots[i].slot < 0) {
+                if (pick == 0) return &m_Bots[i];
+                --pick;
+            }
+        }
+    }
+    // All in use — find one whose slot is no longer valid
     for (int i = 0; i < Count(); ++i) {
         int s = m_Bots[i].slot;
         if (s < 0 || s >= 64) {
@@ -286,9 +297,11 @@ BotIdentity* BotInfo::GetFree() {
             return &m_Bots[i];
         }
     }
-    // All slots valid — recycle the first one (handles over-quota joins)
-    ResetForReuse(m_Bots[0]);
-    return &m_Bots[0];
+    // All slots valid — pick a random one to recycle (handles over-quota joins)
+    int n = Count();
+    int pick = (n > 0) ? (rand() % n) : 0;
+    ResetForReuse(m_Bots[pick]);
+    return &m_Bots[pick];
 }
 
 BotIdentity* BotInfo::At(int idx) {

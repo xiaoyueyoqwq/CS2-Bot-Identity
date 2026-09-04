@@ -80,12 +80,12 @@ instead.
 ```json
 {
   "bots": {
-    "TestBot1": {
-      "steamid": 76561198000000001,
-      "name": "Test Bot 1",
-      "ping": 35,
-      "crosshair": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
-      "scoreboardFlair": 874
+    "Bot01": {
+      "steamid": 76561197961483905,
+      "name": "henry",
+      "ping": 62,
+      "crosshair": "CSGO-M9OZ1-5NPW6-SY5O0-LAMEI-G4Y7V",
+      "scoreboardFlair": 2481
     }
   }
 }
