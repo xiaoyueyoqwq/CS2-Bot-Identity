@@ -6,3 +6,7 @@ CMakeFiles/
 Makefile
 cmake_install.cmake
 gen/
+
+# C# build artifacts
+csharp/*/bin/
+csharp/*/obj/
