@@ -1,24 +1,5 @@
 {
   "bots": {
-    "TestBot1": {
-      "steamid": 76561198000000001,
-      "name": "Test Bot 1",
-      "ping": 35,
-      "crosshair": "CSGO-pE5f8-6RQvk-HLpdN-KW3J6-BQwLA",
-      "scoreboardFlair": 874
-    },
-    "TestBot2": {
-      "steamid": 76561198000000002,
-      "name": "Test Bot 2",
-      "ping": 52,
-      "crosshair": "CSGO-FqJYj-kLuW3-V2QZ3-xbkQK-PHPYE",
-      "scoreboardFlair": 5226
-    },
-    "TestBot3": {
-      "steamid": 76561198000000003,
-      "name": "Test Bot 3",
-      "ping": 18
-    },
     "Bot01": {
       "steamid": 76561197961483905,
       "name": "henry",
