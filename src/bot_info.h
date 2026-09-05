@@ -40,6 +40,11 @@ struct PluginFeatures {
     int pingJitterPercent = 30;  // ±N% per bot per 30s tick
 
     bool resetShmOnStart = true;  // unlink shm on plugin load
+
+    // GameFrame_Post ticks to hold native bot markers after callvote
+    // dispatch returns. Valve builds the voter pool on the first vote
+    // Think, which is after DispatchConCommand returns.
+    int voteTransactionHoldFrames = 3;
 };
 
 // BotInfo: loads bot identities from JSON config

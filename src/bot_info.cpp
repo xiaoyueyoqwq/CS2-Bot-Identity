@@ -142,6 +142,8 @@ bool BotInfo::Load(const char* path) {
                     m_Features.defaultScoreboardFlair = (uint32_t)ReadUInt64(json, i);
                 } else if (fk == "pingJitterPercent") {
                     m_Features.pingJitterPercent = (int)ReadUInt64(json, i);
+                } else if (fk == "voteTransactionHoldFrames") {
+                    m_Features.voteTransactionHoldFrames = (int)ReadUInt64(json, i);
                 }
             });
         } else {
@@ -161,6 +163,10 @@ bool BotInfo::Load(const char* path) {
         if (!MatchChar(json, i, ',')) break;
     }
     MatchChar(json, i, '}');
+    if (m_Features.voteTransactionHoldFrames < 1)
+        m_Features.voteTransactionHoldFrames = 1;
+    if (m_Features.voteTransactionHoldFrames > 32)
+        m_Features.voteTransactionHoldFrames = 32;
     return true;
 }
 

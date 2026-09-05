@@ -252,12 +252,14 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
     std::string botsPath = baseDir + "/addons/BotIdentity/bots.json";
     botid::BotInfos().LoadBots(botsPath.c_str());
 
-    ismm->ConPrintf("[BotIdentity] loaded bot_count=%d fakePing=%d-%d jitter=%d%% flair=%.0f%%\n",
+    ismm->ConPrintf("[BotIdentity] loaded version=%s bot_count=%d fakePing=%d-%d jitter=%d%% flair=%.0f%% voteHoldFrames=%d ctrlSteamIdWrite=scan\n",
+                    GetVersion(),
                     botid::BotInfos().Count(),
                     botid::BotInfos().Features().fakePingMin,
                     botid::BotInfos().Features().fakePingMax,
                     botid::BotInfos().Features().pingJitterPercent,
-                    botid::BotInfos().Features().scoreboardFlairProbability * 100.0);
+                    botid::BotInfos().Features().scoreboardFlairProbability * 100.0,
+                    botid::BotInfos().Features().voteTransactionHoldFrames);
 
     srand(static_cast<unsigned int>(time(nullptr)));
 
@@ -324,13 +326,16 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Post(
 {
     if (!command.IsValidRef() || std::strcmp(command.GetName(), "callvote") != 0) RETURN_META(MRES_IGNORED);
     if (botid::VoteTransactionActive()) {
-        botid::EndVoteTransaction();
+        botid::ScheduleVoteTransactionEnd(
+            botid::BotInfos().Features().voteTransactionHoldFrames);
     }
     RETURN_META(MRES_IGNORED);
 }
 
 void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTick*/, bool /*bLastTick*/) {
     if (!s_PluginActive) return;
+
+    botid::TickVoteTransaction();
 
     const auto& f = botid::BotInfos().Features();
     if (!f.enableFakePing) return;

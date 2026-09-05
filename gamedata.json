@@ -46,7 +46,14 @@
       "windows": 904,
       "linux": 904
     },
-    "comment": "controller fakeclient flags"
+    "comment": "CBaseEntity::m_fFlags on the controller; bit 0x100 is FL_FAKECLIENT"
+  },
+  "CBasePlayerController::m_steamID": {
+    "offsets": {
+      "windows": 1800,
+      "linux": 1800
+    },
+    "comment": "schema dump 0x0708; 0.1.2 live vote-window read was a heap pointer, not SteamID64. Vote path scans for the disguise SteamID64 instead of writing this offset unconditionally"
   },
   "CServerSideClient::m_nEntityIndex": {
     "offsets": {

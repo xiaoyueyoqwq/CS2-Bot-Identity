@@ -20,16 +20,66 @@ On `IServerGameClients::OnClientConnected`, for fake-player (bot) clients:
 On `OnClientDisconnect`, restore the bot to its native state and publish
 slot release to the same shm region.
 
+### Native vote window
+
+Player-mode disguise makes Valve count managed bots as human voters.
+`callvote` is wrapped in an identity transaction:
+
+1. `DispatchConCommand` pre snapshots each managed slot and restores
+   Valve's native bot markers without `MarkEntityStateChanged`:
+   `m_bFakePlayer`, controller `FL_FAKECLIENT` (`0x100`), and the
+   `CServerSideClient` SteamID pair set to 0. It then scans the SSC
+   (first 2048 bytes) and controller (first 4096 bytes) for extra
+   `uint64` copies of that slot's disguise SteamID64 and zeros only
+   those matches. Hardcoded controller `+1800` is **not** written
+   unless that scan finds the disguise SteamID64 there — 0.1.2 live
+   reads at 1800 were a heap pointer, not a SteamID.
+2. `DispatchConCommand` post does **not** close the transaction. Valve
+   builds the voter pool on the first vote Think, after the command
+   returns.
+3. `GameFrame_Post` holds those markers for `voteTransactionHoldFrames`
+   (default 3, about 50ms at 64 tick). Each hold tick re-zeros the
+   known copies if another plugin rewrote them and logs
+   `steamid reappeared` when that happens. The first hold tick also
+   logs `GetClientXUID` / `GetClientSteamID` /
+   `GetPlayerNetworkIDString`. After the hold, the player disguise
+   and the snapshotted SteamID copies are written back.
+
+0.1.1 held only the fake-client flags; live votes still saw Valve write
+`potential=4` during that hold. 0.1.2 also zeroed live SSC SteamID and
+unconditionally wrote controller `+1800`; a global changelevel vote
+still got `potential=6`. 0.1.3 stopped writing `+1800`, scanned for
+SteamID64 copies (live hits `s171,s179,s432,s440,c2528`), and paired
+with BotVoteFix 1.1.2 Schema zero of `m_steamID` at offset **2528**.
+A live changelevel (`team=-1`, 1 human + 9 bots, 2026-09-05 20:23)
+still got Valve `potential=10` during the hold while
+`GetClientXUID=0`, `GetClientSteamID=0`,
+`GetPlayerNetworkIDString=BOT`, and schema `m_steamID=0`. Stop: do
+not bump hold; do not zero another live SteamID copy. Handover:
+`HANDOVER-FABLE-5.1.md` and CS2-Vote-Improver
+`docs/HANDOVER-FABLE-5.1.md`.
+
+Per-slot client/controller-handle checks skip a slot that disconnects or
+is rebound during the hold. If the game server goes away, snapshots are
+dropped and no restore write is attempted.
+
+This does not replace the native vote UI. CounterStrikeSharp plugins such
+as BotVoteFix still cannot rewrite Valve's internal voter ledger by
+patching `CVoteController`. BotVoteFix 1.1.2 uses Schema to zero
+`CBasePlayerController::m_steamID` during the same window (the write
+path BotHiderImpl already uses for the scoreboard).
+
 ## File layout
 
 ```
 CS2-Bot-Identity/
 ├── src/
-│   ├── plugin.cpp        ── IServerGameClients + IServerGameDLL hooks, lifecycle
-│   ├── ssc_ops.h         ── ClearFakePlayer / SetFakePlayer / WriteSteamId
-│   ├── entity_access.cpp ── resolve CServerSideClient* and entity controller
-│   ├── bot_info.cpp      ── JSON parsers for config.json / bots.json
-│   └── shm_pub.cpp       ── shm region creator + data publishers
+│   ├── plugin.cpp            ── IServerGameClients + IServerGameDLL hooks, lifecycle
+│   ├── vote_transaction.cpp  ── callvote identity window
+│   ├── ssc_ops.h             ── fake-client flags, SSC SteamID, controller m_steamID
+│   ├── entity_access.cpp     ── resolve CServerSideClient* and entity controller
+│   ├── bot_info.cpp          ── JSON parsers for config.json / bots.json
+│   └── shm_pub.cpp           ── shm region creator + data publishers
 ├── CMakeLists.txt
 ├── config.json           ── plugin-wide feature toggles
 ├── bots.json             ── per-bot identity list
@@ -54,7 +104,8 @@ apply).
     "scoreboardFlairProbability": 0.3,
     "enableCrosshair": true,
     "defaultScoreboardFlair": 0,
-    "pingJitterPercent": 30
+    "pingJitterPercent": 30,
+    "voteTransactionHoldFrames": 3
   }
 }
 ```
@@ -69,6 +120,7 @@ apply).
 | `enableCrosshair` | bool | true | Master switch for crosshair code |
 | `defaultScoreboardFlair` | uint32 | 0 | Fallback flair when per-bot value is unset |
 | `pingJitterPercent` | int | 30 | ±N% per-bot ping jitter applied every 30s |
+| `voteTransactionHoldFrames` | int | 3 | GameFrame ticks to keep native bot markers after `callvote` returns (clamped 1–32) |
 
 Per-bot overrides take precedence: if a bot has `"ping": 18` in `bots.json`
 and `18 < fakePingMin`, the bot keeps 18 as its base, then the jitter

@@ -66,6 +66,7 @@ void LoadGamedata(const char* path) {
     tryApply("CServerSideClient::m_SteamIDMirror",        OFF_m_SteamIDMirror);
     tryApply("CServerSideClient::m_nEntityIndex",         OFF_m_nEntityIndex);
     tryApply("CBasePlayerController::FakeClientFlags",    OFF_Controller_FakeClientFlags);
+    tryApply("CBasePlayerController::m_steamID",          OFF_Controller_SteamID);
     tryApply("CNetworkGameServerBase::m_Clients",         OFF_ClientList);
     tryApply("GameResourceServiceServer::m_pEntitySystem", s_kEntSys_OffsetInGameResSvc);
     tryApply("CEntitySystem::m_EntityList",               s_kEntSys_IdentityChunksOffset);
