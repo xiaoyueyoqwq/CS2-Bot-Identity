@@ -1,10 +1,13 @@
 #include "bot_info.h"
 
 #include <algorithm>
+#include <cstdarg>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <eiface.h>
 #include <fstream>
+#include <functional>
 #include <interfaces/interfaces.h>
 #include <iserver.h>
 #include <sstream>
@@ -68,6 +71,46 @@ static double ReadDouble(const std::string& s, size_t& i) {
 
 static std::string ReadKey(const std::string& s, size_t& i) {
     return ReadString(s, i);
+}
+
+static void LogWarning(const char* fmt, ...) {
+    char buf[512];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    std::fprintf(stderr, "[BotIdentity] %s", buf);
+}
+
+static std::string TruncateUtf8(const std::string& s, size_t maxBytes) {
+    if (s.size() <= maxBytes) return s;
+    size_t i = maxBytes;
+    while (i > 0 && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) --i;
+    return s.substr(0, i);
+}
+
+static void SkipJsonValue(const std::string& json, size_t& i) {
+    SkipWhitespace(json, i);
+    if (i >= json.size()) return;
+    if (json[i] == '"') {
+        ReadString(json, i);
+        return;
+    }
+    if (json[i] == '{' || json[i] == '[') {
+        int depth = 0;
+        do {
+            if (i >= json.size()) return;
+            if (json[i] == '"') {
+                ReadString(json, i);
+                continue;
+            }
+            if (json[i] == '{' || json[i] == '[') ++depth;
+            else if (json[i] == '}' || json[i] == ']') --depth;
+            ++i;
+        } while (i < json.size() && depth > 0);
+        return;
+    }
+    while (i < json.size() && json[i] != ',' && json[i] != '}' && json[i] != ']') ++i;
 }
 
 // Read a top-level block: { k1:v1, k2:v2, ... }
@@ -183,6 +226,10 @@ bool BotInfo::LoadBots(const char* path) {
 
     if (!MatchChar(json, i, '{')) return false;
 
+    m_Bots.clear();
+    m_DroppedOnLoad = 0;
+    m_TruncatedOnLoad = 0;
+
     while (SkipWhitespace(json, i) && json[i] != '}') {
         std::string key = ReadKey(json, i);
         if (key.empty()) break;
@@ -217,28 +264,68 @@ bool BotInfo::LoadBots(const char* path) {
                     MatchChar(json, i, '}');
                 }
 
+                if (bi.name.size() > kMaxPersonaNameBytes) {
+                    LogWarning("warning: persona name truncated to %zu bytes: '%s'\n",
+                               kMaxPersonaNameBytes, bi.name.c_str());
+                    bi.name = TruncateUtf8(bi.name, kMaxPersonaNameBytes);
+                    ++m_TruncatedOnLoad;
+                }
+
                 if (m_Bots.size() < static_cast<size_t>(kMaxBotIdentities)) {
                     m_Bots.push_back(bi);
+                } else {
+                    ++m_DroppedOnLoad;
                 }
             });
         } else {
-            // Unknown: skip
-            if (json[i] == '{') {
-                int depth = 1; while (++i < json.size() && depth > 0) {
-                    if (json[i] == '{') ++depth; else if (json[i] == '}') --depth;
-                } ++i;
-            } else if (json[i] == '[') {
-                int depth = 1; while (++i < json.size() && depth > 0) {
-                    if (json[i] == '[') ++depth; else if (json[i] == ']') --depth;
-                } ++i;
-            } else {
-                while (i < json.size() && json[i] != ',' && json[i] != '}') ++i;
-            }
+            SkipJsonValue(json, i);
         }
         if (!MatchChar(json, i, ',')) break;
     }
     MatchChar(json, i, '}');
+    if (m_DroppedOnLoad > 0) {
+        LogWarning("warning: bots list truncated at kMaxBotIdentities=%d (dropped %d)\n",
+                   kMaxBotIdentities, m_DroppedOnLoad);
+    }
     return true;
+}
+
+bool ReadCssServerLanguage(const char* path, std::string& out) {
+    out.clear();
+    std::ifstream f(path);
+    if (!f) return false;
+    std::stringstream ss; ss << f.rdbuf();
+    std::string json = ss.str();
+    size_t i = 0;
+    if (!MatchChar(json, i, '{')) return false;
+
+    while (SkipWhitespace(json, i) && json[i] != '}') {
+        std::string key = ReadKey(json, i);
+        if (key.empty()) break;
+        if (!MatchChar(json, i, ':')) break;
+        if (key == "ServerLanguage") {
+            out = ReadString(json, i);
+            return !out.empty();
+        }
+        SkipJsonValue(json, i);
+        if (!MatchChar(json, i, ',')) break;
+    }
+    return false;
+}
+
+BotListSelection SelectBotList(const std::string& baseDir) {
+    BotListSelection sel;
+    const std::string corePath = baseDir + "/addons/counterstrikesharp/configs/core.json";
+    sel.cssLanguageFound = ReadCssServerLanguage(corePath.c_str(), sel.cssLanguage);
+    sel.matched = "default";
+    sel.relativeFile = "bots.json";
+    sel.absolutePath = baseDir + "/addons/BotIdentity/bots.json";
+    if (sel.cssLanguageFound && IsSimplifiedChinese(sel.cssLanguage)) {
+        sel.matched = "zh-CN";
+        sel.relativeFile = "lang/zh-CN.json";
+        sel.absolutePath = baseDir + "/addons/BotIdentity/lang/zh-CN.json";
+    }
+    return sel;
 }
 
 const BotIdentity* BotInfo::GetByIndex(int idx) const {
@@ -267,58 +354,69 @@ bool BotInfo::IsSlotActive(int slot) {
 static void ResetForReuse(BotIdentity& b) {
     b.slot = -1;
     b.applied = false;
-    // When recycled, derive a slot-specific synthetic SteamID so each
-    // bot on the server ends up with a unique id even if it reuses a name.
-    // The high 48 bits come from the base, the low 16 bits encode reuse count
-    // and slot-relative index (assigned at Mark time via a separate rewrite).
+    // reused is diagnostic only. ApplyDisguise writes the config SteamID64
+    // unchanged so Steam CDN avatars keep resolving.
     b.reused = static_cast<uint16_t>(b.reused + 1);
 }
 
 // Returns true if a bot with this name is currently active (slot != -1).
 // Prevents two live bots from sharing a persona name in the same match.
-static bool IsNameInUse(const std::vector<BotIdentity>& bots, const std::string& name) {
+static bool IsNameInUse(const std::vector<BotIdentity>& bots, const std::string& name,
+                        const BotIdentity* self = nullptr) {
     for (const auto& b : bots) {
+        if (&b == self) continue;
         if (b.slot >= 0 && b.applied && b.name == name) return true;
     }
     return false;
 }
 
+// Prevents two live bots from sharing a SteamID64 (scoreboard / avatar key).
+static bool IsSteamIdInUse(const std::vector<BotIdentity>& bots, uint64_t steamId,
+                           const BotIdentity* self = nullptr) {
+    if (steamId == 0) return false;
+    for (const auto& b : bots) {
+        if (&b == self) continue;
+        if (b.slot >= 0 && b.applied && b.steamId == steamId) return true;
+    }
+    return false;
+}
+
+static bool IsAssignable(const std::vector<BotIdentity>& bots, const BotIdentity& candidate) {
+    return !IsNameInUse(bots, candidate.name, &candidate) &&
+           !IsSteamIdInUse(bots, candidate.steamId, &candidate);
+}
+
 BotIdentity* BotInfo::GetFree() {
     // Build a list of candidates: free entries (slot == -1) whose name
-    // is not currently used by another live bot. Pick one at random.
+    // and SteamID64 are not currently used by another live bot.
     int freeCount = 0;
     for (int i = 0; i < Count(); ++i) {
-        if (m_Bots[i].slot < 0 && !IsNameInUse(m_Bots, m_Bots[i].name)) ++freeCount;
+        if (m_Bots[i].slot < 0 && IsAssignable(m_Bots, m_Bots[i])) ++freeCount;
     }
     if (freeCount > 0) {
         int pick = rand() % freeCount;
         for (int i = 0; i < Count(); ++i) {
-            if (m_Bots[i].slot < 0 && !IsNameInUse(m_Bots, m_Bots[i].name)) {
+            if (m_Bots[i].slot < 0 && IsAssignable(m_Bots, m_Bots[i])) {
                 if (pick == 0) return &m_Bots[i];
                 --pick;
             }
         }
     }
-    // All in use — find one whose slot is no longer valid, also dedup by name
+    // All in use — find one whose slot is no longer valid, also dedup by
+    // name and SteamID64. Do not steal an identity from a live slot.
     for (int i = 0; i < Count(); ++i) {
         int s = m_Bots[i].slot;
-        if ((s < 0 || s >= 64) && !IsNameInUse(m_Bots, m_Bots[i].name)) {
+        if ((s < 0 || s >= 64) && IsAssignable(m_Bots, m_Bots[i])) {
             ResetForReuse(m_Bots[i]);
             return &m_Bots[i];
         }
-        if (s >= 0 && s < 64 && !IsSlotActive(s) && !IsNameInUse(m_Bots, m_Bots[i].name)) {
+        if (s >= 0 && s < 64 && !IsSlotActive(s) && IsAssignable(m_Bots, m_Bots[i])) {
             ResetForReuse(m_Bots[i]);
             return &m_Bots[i];
         }
     }
-    // Everything is exhausted — fall back to a random recycle even
-    // if the name collides. (This branch is the only path that may
-    // produce duplicate names; it should not run in normal operation.)
-    int n = Count();
-    if (n <= 0) return nullptr;
-    int pick = rand() % n;
-    ResetForReuse(m_Bots[pick]);
-    return &m_Bots[pick];
+    // Exhausted: refuse rather than hand out a duplicate SteamID64.
+    return nullptr;
 }
 
 BotIdentity* BotInfo::At(int idx) {

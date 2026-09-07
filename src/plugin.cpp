@@ -67,20 +67,13 @@ static void ApplyDisguise(int slot, BotIdentity* identity) {
 
     int entityIndex = GetEntityIndex(client);
 
-    // If this identity was recycled, derive a slot-unique SteamID
-    // so bots reusing the same name still get distinct SteamIDs.
-    if (identity->reused > 0) {
-        // Keep the upper 48 bits from the config SteamID, overwrite the
-        // lower 16 bits with (reused * 64 + slot). This stays inside the
-        // 48-bit account-id range and is deterministic.
-        uint64_t base = identity->steamId & 0xFFFFFFFFFFFF0000ULL;
-        uint64_t suffix = (static_cast<uint64_t>(identity->reused) * 64u + static_cast<uint64_t>(slot)) & 0xFFFFu;
-        identity->steamId = base | suffix;
-    }
+    // Keep the config SteamID64 as-is. Mutating the low 16 bits on recycle
+    // breaks Steam CDN avatars for real accounts. GetFree() already refuses
+    // to hand the same SteamID64 to two live slots.
 
     // Step 1: Clear CServerSideClient::m_bFakePlayer (set bit pattern: 0x01 mask)
     ClearFakePlayer(client);
-    // Step 2: Write synthetic SteamID
+    // Step 2: Write SteamID from the bot list
     WriteSteamId(client, identity->steamId);
 
     // Step 3: Try to find controller and clear its FakeClientFlags too
@@ -249,10 +242,24 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
     std::string featuresPath = baseDir + "/addons/BotIdentity/config.json";
     botid::BotInfos().LoadFeatures(featuresPath.c_str());
 
-    std::string botsPath = baseDir + "/addons/BotIdentity/bots.json";
-    botid::BotInfos().LoadBots(botsPath.c_str());
+    botid::BotListSelection botList = botid::SelectBotList(baseDir);
+    bool loadedBots = botid::BotInfos().LoadBots(botList.absolutePath.c_str());
+    if (!loadedBots || botid::BotInfos().Count() <= 0) {
+        if (botList.matched != "default") {
+            ismm->ConPrintf("[BotIdentity] warning: failed to load %s, falling back to bots.json\n",
+                            botList.relativeFile.c_str());
+            botList.matched = "default";
+            botList.relativeFile = "bots.json";
+            botList.absolutePath = baseDir + "/addons/BotIdentity/bots.json";
+            botid::BotInfos().LoadBots(botList.absolutePath.c_str());
+        }
+    }
 
-    ismm->ConPrintf("[BotIdentity] loaded version=%s bot_count=%d fakePing=%d-%d jitter=%d%% flair=%.0f%% voteHoldFrames=%d ctrlSteamIdWrite=scan\n",
+    ismm->ConPrintf("[BotIdentity] language css=%s matched=%s file=%s\n",
+                    botList.cssLanguageFound ? botList.cssLanguage.c_str() : "(missing)",
+                    botList.matched.c_str(),
+                    botList.relativeFile.c_str());
+    ismm->ConPrintf("[BotIdentity] loaded version=%s bot_count=%d fakePing=%d-%d jitter=%d%% flair=%.0f%% voteHoldFrames=%d ctrlSteamIdWrite=scan sidReuseMutate=off\n",
                     GetVersion(),
                     botid::BotInfos().Count(),
                     botid::BotInfos().Features().fakePingMin,

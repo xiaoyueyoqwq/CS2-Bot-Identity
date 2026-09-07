@@ -129,3 +129,13 @@ install(FILES
     ${CMAKE_SOURCE_DIR}/gamedata.json
     DESTINATION addons/BotIdentity
 )
+
+install(FILES
+    ${CMAKE_SOURCE_DIR}/lang/zh-CN.json
+    DESTINATION addons/BotIdentity/lang
+)
+
+install(FILES
+    ${CMAKE_SOURCE_DIR}/BotIdentity.vdf
+    DESTINATION addons/metamod
+)

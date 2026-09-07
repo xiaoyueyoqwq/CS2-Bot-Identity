@@ -11,7 +11,7 @@ On `IServerGameClients::OnClientConnected`, for fake-player (bot) clients:
 
 1. Locate the `CServerSideClient*` for the connecting slot
 2. Clear `m_bFakePlayer` and update `m_nConnectionTypeFlags`
-3. Write a synthetic `m_SteamID` (and `m_SteamIDMirror`) from the config
+3. Write `m_SteamID` (and `m_SteamIDMirror`) from the config SteamID64 as-is
 4. Clear `FakeClientFlags` bit `0x100` on the controller entity, when
    reachable
 5. Publish slot metadata (state, SteamID, persona name) to
@@ -78,19 +78,22 @@ CS2-Bot-Identity/
 │   ├── vote_transaction.cpp  ── callvote identity window
 │   ├── ssc_ops.h             ── fake-client flags, SSC SteamID, controller m_steamID
 │   ├── entity_access.cpp     ── resolve CServerSideClient* and entity controller
-│   ├── bot_info.cpp          ── JSON parsers for config.json / bots.json
+│   ├── bot_info.cpp          ── JSON parsers for config.json / bots.json / CSS core.json
 │   └── shm_pub.cpp           ── shm region creator + data publishers
 ├── CMakeLists.txt
 ├── config.json           ── plugin-wide feature toggles
-├── bots.json             ── per-bot identity list
+├── bots.json             ── default per-bot identity list
+├── lang/
+│   └── zh-CN.json        ── Simplified Chinese identity list
 ├── gamedata.json         ── memory-offset overrides
 └── README.md
 ```
 
 ## Configuration
 
-Two files. The plugin loads both at startup; either may be omitted (defaults
-apply).
+`config.json` and a bot list. The plugin loads both at startup; either may be
+omitted (defaults apply). Which bot list is used follows CounterStrikeSharp
+`ServerLanguage` (see below).
 
 ### `config.json` — plugin-wide feature toggles
 
@@ -127,7 +130,36 @@ and `18 < fakePingMin`, the bot keeps 18 as its base, then the jitter
 applies. If the per-bot value falls within the range, the range is used
 instead.
 
-### `bots.json` — per-bot identity list
+### Language-selected bot lists
+
+On load the native plugin reads CounterStrikeSharp
+`addons/counterstrikesharp/configs/core.json` key `ServerLanguage` (RFC 4646).
+It does **not** use the C# `CoreConfig.ServerLanguage` API: Metamod loads
+before CSS, and the first map's bots connect before C# is up.
+
+| `ServerLanguage` | List |
+|---|---|
+| Simplified Chinese family: `zh`, `zh-CN`, `zh-Hans`, `zh-Hans-CN`, … | `lang/zh-CN.json` |
+| Traditional Chinese: `zh-TW`, `zh-Hant`, `zh-HK`, `zh-MO` | `bots.json` |
+| Any other language, missing CSS, missing key, or parse failure | `bots.json` |
+
+If `lang/zh-CN.json` is selected but missing, empty, or unreadable, the
+plugin falls back to `bots.json` and logs a warning. Load log includes the
+CSS tag, the match (`zh-CN` or `default`), and the file used.
+
+The cap is 64 identities (`kMaxBotIdentities`). Persona names are at most
+31 bytes of UTF-8 (Chinese ≈ 10 characters); longer names are truncated on
+a code-point boundary and logged.
+
+`lang/zh-CN.json` keeps the 15 二次元 names and the CNCS 神人 IDs, and
+replaces bland 路人 names with shorter meme lines. Each `steamid` in that
+file is a real SteamID64 whose community profile has a non-default avatar,
+so the scoreboard can fetch it from the Steam CDN. Clicking the avatar
+opens that real profile. Identities are not bound to VAC-banned accounts
+or pro player IDs. Recycle no longer rewrites the low 16 bits of the
+SteamID64 (`sidReuseMutate=off`); two live slots never share one ID.
+
+### `bots.json` / `lang/zh-CN.json` — per-bot identity list
 
 ```json
 {
@@ -145,8 +177,8 @@ instead.
 
 | Field | Type | Required | Effect |
 |---|---|---|---|
-| `steamid` | uint64 | yes | Synthetic SteamID written to `m_SteamID` |
-| `name` | string | yes | Persona name (32 bytes NUL-padded UTF-8) |
+| `steamid` | uint64 | yes | SteamID64 written to `m_SteamID` / `m_SteamIDMirror` as-is (CDN avatar key) |
+| `name` | string | yes | Persona name (31 bytes UTF-8 + NUL; truncated if longer) |
 | `ping` | int | no | Base ping value; out-of-range treated as override |
 | `crosshair` | string | no | Crosshair code (64 bytes) |
 | `scoreboardFlair` | uint32 | no | ItemDefIndex written to `InventoryServices::m_rank[]` |
@@ -170,6 +202,8 @@ make
 cp BotIdentity.so <server>/game/csgo/addons/BotIdentity/bin/linuxsteamrt64/
 cp config.json    <server>/game/csgo/addons/BotIdentity/
 cp bots.json      <server>/game/csgo/addons/BotIdentity/
+mkdir -p          <server>/game/csgo/addons/BotIdentity/lang
+cp lang/zh-CN.json <server>/game/csgo/addons/BotIdentity/lang/
 cp BotIdentity.vdf <server>/game/csgo/addons/metamod/
 # addons/metamod/BotIdentity.vdf points to the .so path
 ```

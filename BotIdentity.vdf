@@ -1,0 +1,5 @@
+"Metamod Plugin"
+{
+	"alias"	"BotIdentity"
+	"file"	"addons/BotIdentity/bin/linuxsteamrt64/BotIdentity"
+}
