@@ -2,7 +2,6 @@ using BotIdentityApi;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Capabilities;
-using CounterStrikeSharp.API.Modules.Timers;
 using Microsoft.Extensions.Logging;
 
 namespace BotIdentityImpl;
@@ -10,7 +9,7 @@ namespace BotIdentityImpl;
 public sealed partial class BotIdentityImplPlugin : BasePlugin
 {
     public override string ModuleName => "BotIdentityImpl";
-    public override string ModuleVersion => "0.1.1";
+    public override string ModuleVersion => "0.1.2";
     public override string ModuleAuthor => "CS2-Bot-Identity";
     public override string ModuleDescription =>
         "Reads bot identity metadata from the BotIdentity native plugin via shared memory.";
@@ -20,7 +19,8 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
 
     private readonly SharedMemoryClient _client = new();
     private IBotIdentityApi? _api;
-    private CounterStrikeSharp.API.Modules.Timers.Timer? _colorTimer;
+    private CounterStrikeSharp.API.Modules.Timers.Timer? _colorDelayShort;
+    private CounterStrikeSharp.API.Modules.Timers.Timer? _colorDelayLong;
 
     public override void Load(bool hotReload)
     {
@@ -42,13 +42,12 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
         RegisterEventHandler<EventRoundStart>(OnRoundStart);
         RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
-        _colorTimer = AddTimer(2.0f, ReconcileTeammateColors, TimerFlags.REPEAT);
     }
 
     public override void OnAllPluginsLoaded(bool hotReload)
     {
         if (_api == null) TryRegister();
-        Server.NextFrame(ReconcileTeammateColors);
+        ScheduleTeammateColorReconcile();
     }
 
     private void TryRegister()
@@ -63,10 +62,33 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
 
     public override void Unload(bool hotReload)
     {
-        _colorTimer?.Kill();
-        _colorTimer = null;
+        KillColorDelayTimers();
         _api = null;
         _client.Dispose();
+    }
+
+    private void ScheduleTeammateColorReconcile()
+    {
+        Server.NextFrame(ReconcileTeammateColors);
+        KillColorDelayTimers();
+        _colorDelayShort = AddTimer(0.5f, () =>
+        {
+            _colorDelayShort = null;
+            ReconcileTeammateColors();
+        });
+        _colorDelayLong = AddTimer(2.0f, () =>
+        {
+            _colorDelayLong = null;
+            ReconcileTeammateColors();
+        });
+    }
+
+    private void KillColorDelayTimers()
+    {
+        _colorDelayShort?.Kill();
+        _colorDelayShort = null;
+        _colorDelayLong?.Kill();
+        _colorDelayLong = null;
     }
 }
 

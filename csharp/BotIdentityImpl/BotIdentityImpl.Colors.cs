@@ -11,25 +11,29 @@ public sealed partial class BotIdentityImplPlugin
     private const int ColorUnset = -1;
     private const int ColorCount = 5;
     private const int MaxSlots = 64;
+    private const int MaxForceWrites = 3;
 
     private readonly int[] _assignedColors = Enumerable.Repeat(ColorUnset, MaxSlots).ToArray();
     private readonly ulong[] _assignedIncarnations = new ulong[MaxSlots];
+    private readonly byte[] _assignedTeams = new byte[MaxSlots];
+    private readonly int[] _colorForceWrites = new int[MaxSlots];
+    private readonly bool[] _colorGaveUp = new bool[MaxSlots];
 
     private HookResult OnPlayerTeam(EventPlayerTeam @event, GameEventInfo info)
     {
-        Server.NextFrame(ReconcileTeammateColors);
+        ScheduleTeammateColorReconcile();
         return HookResult.Continue;
     }
 
     private HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
-        Server.NextFrame(ReconcileTeammateColors);
+        ScheduleTeammateColorReconcile();
         return HookResult.Continue;
     }
 
     private HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
-        Server.NextFrame(ReconcileTeammateColors);
+        ScheduleTeammateColorReconcile();
         return HookResult.Continue;
     }
 
@@ -37,8 +41,16 @@ public sealed partial class BotIdentityImplPlugin
     {
         if ((uint)slot >= MaxSlots)
             return;
+        ClearColorLease(slot);
+    }
+
+    private void ClearColorLease(int slot)
+    {
         _assignedColors[slot] = ColorUnset;
         _assignedIncarnations[slot] = 0;
+        _assignedTeams[slot] = 0;
+        _colorForceWrites[slot] = 0;
+        _colorGaveUp[slot] = false;
     }
 
     private void ReconcileTeammateColors()
@@ -80,9 +92,8 @@ public sealed partial class BotIdentityImplPlugin
             if (player.IsBot || player.SteamID == 0)
                 continue;
 
-            var humanColor = player.CompTeammateColor;
-            if (humanColor >= 0 && humanColor < ColorCount)
-                humanColors.Add(humanColor);
+            AddTakenColor(humanColors, player.CompTeammateColor);
+            AddTakenColor(humanColors, player.TeammatePreferredColor);
         }
 
         if (bots.Count == 0)
@@ -98,19 +109,32 @@ public sealed partial class BotIdentityImplPlugin
                 continue;
 
             var incarnation = _client.GetSlotIncarnation(slot);
-            if (_assignedIncarnations[slot] != incarnation)
+            var teamNum = bot.TeamNum;
+            if (_assignedIncarnations[slot] != incarnation || _assignedTeams[slot] != teamNum)
             {
                 _assignedColors[slot] = ColorUnset;
                 _assignedIncarnations[slot] = incarnation;
+                _assignedTeams[slot] = teamNum;
+                _colorForceWrites[slot] = 0;
+                _colorGaveUp[slot] = false;
             }
 
             var current = bot.CompTeammateColor;
-            var preferred = _assignedColors[slot];
+            var valvePreferred = bot.TeammatePreferredColor;
+            if (_colorGaveUp[slot])
+            {
+                ReserveObservedColor(taken, current, _assignedColors[slot]);
+                continue;
+            }
+
+            var cached = _assignedColors[slot];
             var color = ColorUnset;
-            if (current >= 0 && current < ColorCount && !taken.Contains(current))
+            if (IsFreeColor(valvePreferred, taken))
+                color = valvePreferred;
+            else if (IsFreeColor(current, taken))
                 color = current;
-            else if (preferred >= 0 && preferred < ColorCount && !taken.Contains(preferred))
-                color = preferred;
+            else if (IsFreeColor(cached, taken))
+                color = cached;
             else
             {
                 for (var i = 0; i < ColorCount; i++)
@@ -123,7 +147,7 @@ public sealed partial class BotIdentityImplPlugin
             }
 
             // Five competitive colors. A 6th teammate has no unique slot;
-            // do not steal with slot%5 — that fights the 2s timer forever.
+            // do not steal with slot%5 — that retriggers Valve color claims.
             if (color == ColorUnset)
             {
                 _assignedColors[slot] = ColorUnset;
@@ -135,14 +159,48 @@ public sealed partial class BotIdentityImplPlugin
             if (current == color)
                 continue;
 
+            if (_colorForceWrites[slot] >= MaxForceWrites)
+            {
+                _colorGaveUp[slot] = true;
+                Logger.LogInformation(
+                    "[BotIdentityImpl] teammate color write gave up slot={Slot} current={Current} preferred={Preferred} color={Color}",
+                    slot,
+                    current,
+                    valvePreferred,
+                    color);
+                continue;
+            }
+
             if (!TryWriteTeammateColor(bot, color))
                 continue;
 
+            _colorForceWrites[slot]++;
             Logger.LogInformation(
-                "[BotIdentityImpl] assigned teammate color slot={Slot} color={Color}",
+                "[BotIdentityImpl] assigned teammate color slot={Slot} current={Current} preferred={Preferred} color={Color}",
                 slot,
+                current,
+                valvePreferred,
                 color);
         }
+    }
+
+    private static void AddTakenColor(HashSet<int> taken, int color)
+    {
+        if (color >= 0 && color < ColorCount)
+            taken.Add(color);
+    }
+
+    private static bool IsFreeColor(int color, HashSet<int> taken)
+    {
+        return color >= 0 && color < ColorCount && !taken.Contains(color);
+    }
+
+    private static void ReserveObservedColor(HashSet<int> taken, int current, int assigned)
+    {
+        if (IsFreeColor(current, taken))
+            taken.Add(current);
+        else if (IsFreeColor(assigned, taken))
+            taken.Add(assigned);
     }
 
     private static bool TryWriteTeammateColor(CCSPlayerController player, int color)
@@ -153,8 +211,6 @@ public sealed partial class BotIdentityImplPlugin
             Schema.SetSchemaValue(player.Handle, "CCSPlayerController", "m_iTeammatePreferredColor", color);
             Schema.SetSchemaValue(player.Handle, "CCSPlayerController", "m_bAttemptedToGetColor", true);
             Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompTeammateColor");
-            Utilities.SetStateChanged(player, "CCSPlayerController", "m_iTeammatePreferredColor");
-            Utilities.SetStateChanged(player, "CCSPlayerController", "m_bAttemptedToGetColor");
             return true;
         }
         catch (Exception)
