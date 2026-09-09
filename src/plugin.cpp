@@ -294,6 +294,7 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
 
 bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
     s_PluginActive = false;
+    m_BotKickCommandDepth = 0;
 
     botid::ResetVoteTransaction();
 
@@ -322,8 +323,18 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
     ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& /*arguments*/)
 {
     if (!s_PluginActive || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
-    if (!std::strcmp(command.GetName(), "callvote")) {
+    const char* name = command.GetName();
+    if (!std::strcmp(name, "callvote")) {
         botid::BeginVoteTransaction();
+    } else if (!std::strcmp(name, "bot_kick")) {
+        // Reuse an in-flight vote window so this Post cannot cancel its hold.
+        if (!botid::VoteTransactionActive() || m_BotKickCommandDepth != 0) {
+            botid::BeginVoteTransaction();
+            ++m_BotKickCommandDepth;
+            META_CONPRINTF("[BotIdentity] bot_kick identity transaction begin\n");
+        } else {
+            META_CONPRINTF("[BotIdentity] bot_kick identity transaction reuse vote window\n");
+        }
     }
     RETURN_META(MRES_IGNORED);
 }
@@ -331,10 +342,19 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
 void BotIdentityPlugin::Hook_DispatchConCommand_Post(
     ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& /*arguments*/)
 {
-    if (!command.IsValidRef() || std::strcmp(command.GetName(), "callvote") != 0) RETURN_META(MRES_IGNORED);
-    if (botid::VoteTransactionActive()) {
-        botid::ScheduleVoteTransactionEnd(
-            botid::BotInfos().Features().voteTransactionHoldFrames);
+    if (!command.IsValidRef()) RETURN_META(MRES_IGNORED);
+    const char* name = command.GetName();
+    if (!std::strcmp(name, "callvote")) {
+        if (botid::VoteTransactionActive()) {
+            botid::ScheduleVoteTransactionEnd(
+                botid::BotInfos().Features().voteTransactionHoldFrames);
+        }
+        RETURN_META(MRES_IGNORED);
+    }
+    if (!std::strcmp(name, "bot_kick") && m_BotKickCommandDepth != 0) {
+        --m_BotKickCommandDepth;
+        botid::EndVoteTransaction();
+        META_CONPRINTF("[BotIdentity] bot_kick identity transaction end\n");
     }
     RETURN_META(MRES_IGNORED);
 }
