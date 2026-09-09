@@ -2,14 +2,15 @@ using BotIdentityApi;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Capabilities;
+using CounterStrikeSharp.API.Modules.Timers;
 using Microsoft.Extensions.Logging;
 
 namespace BotIdentityImpl;
 
-public sealed class BotIdentityImplPlugin : BasePlugin
+public sealed partial class BotIdentityImplPlugin : BasePlugin
 {
     public override string ModuleName => "BotIdentityImpl";
-    public override string ModuleVersion => "0.1.0";
+    public override string ModuleVersion => "0.1.1";
     public override string ModuleAuthor => "CS2-Bot-Identity";
     public override string ModuleDescription =>
         "Reads bot identity metadata from the BotIdentity native plugin via shared memory.";
@@ -19,6 +20,7 @@ public sealed class BotIdentityImplPlugin : BasePlugin
 
     private readonly SharedMemoryClient _client = new();
     private IBotIdentityApi? _api;
+    private CounterStrikeSharp.API.Modules.Timers.Timer? _colorTimer;
 
     public override void Load(bool hotReload)
     {
@@ -35,11 +37,18 @@ public sealed class BotIdentityImplPlugin : BasePlugin
             Logger.LogWarning("[BotIdentityImpl] shared memory region not found; " +
                 "botidentity:api not registered. Did the BotIdentity native plugin load?");
         }
+
+        RegisterEventHandler<EventPlayerTeam>(OnPlayerTeam);
+        RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        RegisterEventHandler<EventRoundStart>(OnRoundStart);
+        RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
+        _colorTimer = AddTimer(2.0f, ReconcileTeammateColors, TimerFlags.REPEAT);
     }
 
     public override void OnAllPluginsLoaded(bool hotReload)
     {
         if (_api == null) TryRegister();
+        Server.NextFrame(ReconcileTeammateColors);
     }
 
     private void TryRegister()
@@ -54,6 +63,8 @@ public sealed class BotIdentityImplPlugin : BasePlugin
 
     public override void Unload(bool hotReload)
     {
+        _colorTimer?.Kill();
+        _colorTimer = null;
         _api = null;
         _client.Dispose();
     }
