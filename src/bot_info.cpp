@@ -442,6 +442,10 @@ void IdentityManager::Unmark(int slot) {
     if (slot < 0 || slot >= kMaxSlots) return;
     int bi = m_Slots[slot];
     if (bi >= 0) {
+        if (BotIdentity* identity = BotInfos().At(bi)) {
+            identity->slot = -1;
+            identity->applied = false;
+        }
         m_Slots[slot] = -1;
         m_BotToSlot[bi] = -1;
         --m_ActiveCount;

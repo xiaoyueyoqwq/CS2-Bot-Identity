@@ -21,7 +21,7 @@ public:
     const char* GetDescription() override { return "Bot identity management — minimal implementation"; }
     const char* GetURL() override { return "https://github.com/xiaoyueyoqwq/CS2-Bot-Identity"; }
     const char* GetLicense() override { return "MIT"; }
-    const char* GetVersion() override { return "0.1.6"; }
+    const char* GetVersion() override { return "0.1.7"; }
     const char* GetDate() override { return __DATE__; }
     const char* GetLogTag() override { return "BOTIDENTITY"; }
 
