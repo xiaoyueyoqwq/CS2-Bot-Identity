@@ -27,6 +27,11 @@ struct BotIdentity {
     uint16_t reused = 0;  // diagnostic recycle count; SteamID64 is never rewritten
 };
 
+// Apply player-mode disguise to one managed slot. No-op if already applied,
+// if the client cannot be resolved, or if a native-identity transaction is
+// holding bot markers (the slot stays managed with applied=false).
+void ApplyDisguise(int slot, BotIdentity* identity);
+
 // Global plugin features, loaded from the top-level "features" key in
 // config.json. Defaults match a "light disguise" profile: a moderate
 // ping range and a low flair probability.
@@ -44,9 +49,9 @@ struct PluginFeatures {
 
     bool resetShmOnStart = true;  // unlink shm on plugin load
 
-    // GameFrame_Post ticks to hold native bot markers after callvote
-    // dispatch returns. Valve builds the voter pool on the first vote
-    // Think, which is after DispatchConCommand returns.
+    // GameFrame_Post ticks to hold native bot markers after callvote /
+    // bot_kick dispatch returns. Valve builds the voter pool
+    // and deferred kick disconnects after DispatchConCommand returns.
     int voteTransactionHoldFrames = 3;
 };
 

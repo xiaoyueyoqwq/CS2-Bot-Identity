@@ -18,12 +18,18 @@ On `IServerGameClients::OnClientConnected`, for fake-player (bot) clients:
    `/dev/shm/CS2BotHider_Slots`
 
 On `OnClientDisconnect`, restore the bot to its native state and publish
-slot release to the same shm region.
+slot release to the same shm region. Kick/ban disconnects first call
+`CCSPlayerController::ChangeTeam(1)` (spectator) while the bot is still
+disguised, then queue the controller for a deferred `UTIL_Remove`.
+Player-mode disguise otherwise makes Valve keep that controller on T/CT
+(team-select occupancy and scoreboard ghosts) after the name has already
+left the player list.
 
-### Native vote window
+### Native vote / population window
 
-Player-mode disguise makes Valve count managed bots as human voters.
-`callvote` is wrapped in an identity transaction:
+Player-mode disguise makes Valve count managed bots as human voters and
+treat `bot_kick` as a human disconnect. `callvote`, `bot_kick` /
+`kick` / `kickid` / `banid` share one identity transaction:
 
 1. `DispatchConCommand` pre snapshots each managed slot and restores
    Valve's native bot markers without `MarkEntityStateChanged`:
@@ -35,8 +41,9 @@ Player-mode disguise makes Valve count managed bots as human voters.
    unless that scan finds the disguise SteamID64 there — 0.1.2 live
    reads at 1800 were a heap pointer, not a SteamID.
 2. `DispatchConCommand` post does **not** close the transaction. Valve
-   builds the voter pool on the first vote Think, after the command
-   returns.
+   builds the voter pool on the first vote Think, and processes kick
+   disconnects, after the command returns. 0.1.6 ended `bot_kick` in
+   that Post hook and immediately re-disguised still-connected slots.
 3. `GameFrame_Post` holds those markers for `voteTransactionHoldFrames`
    (default 3, about 50ms at 64 tick). Each hold tick re-zeros the
    known copies if another plugin rewrote them and logs
@@ -44,6 +51,12 @@ Player-mode disguise makes Valve count managed bots as human voters.
    logs `GetClientXUID` / `GetClientSteamID` /
    `GetPlayerNetworkIDString`. After the hold, the player disguise
    and the snapshotted SteamID copies are written back.
+
+`bot_add` / `bot_add_t` / `bot_add_ct` do **not** open this window.
+0.1.16 kept new bots native for the hold; with `bot_quota 0` the
+engine Console-kicked them (`NETWORK_DISCONNECT_KICKED`) before
+disguise. 0.1.17 disguises during the add command. If add arrives
+while a kick/vote hold is still open, that hold is force-ended first.
 
 0.1.1 held only the fake-client flags; live votes still saw Valve write
 `potential=4` during that hold. 0.1.2 also zeroed live SSC SteamID and
@@ -75,7 +88,8 @@ path BotHiderImpl already uses for the scoreboard).
 CS2-Bot-Identity/
 ├── src/
 │   ├── plugin.cpp            ── IServerGameClients + IServerGameDLL hooks, lifecycle
-│   ├── vote_transaction.cpp  ── callvote identity window
+│   ├── vote_transaction.cpp  ── callvote / kick / add identity window
+│   ├── controller_reap.cpp   ── deferred UTIL_Remove of leftover controllers
 │   ├── ssc_ops.h             ── fake-client flags, SSC SteamID, controller m_steamID
 │   ├── entity_access.cpp     ── resolve CServerSideClient* and entity controller
 │   ├── bot_info.cpp          ── JSON parsers for config.json / bots.json / CSS core.json
@@ -200,6 +214,7 @@ make
 
 ```bash
 cp BotIdentity.so <server>/game/csgo/addons/BotIdentity/bin/linuxsteamrt64/
+cp gamedata.json  <server>/game/csgo/addons/BotIdentity/
 cp config.json    <server>/game/csgo/addons/BotIdentity/
 cp bots.json      <server>/game/csgo/addons/BotIdentity/
 mkdir -p          <server>/game/csgo/addons/BotIdentity/lang
@@ -231,13 +246,18 @@ are not written by this plugin.
 
 - This plugin only writes a small, well-defined set of fields per bot. It
   does not intercept `MaintainBotQuota`, `HandleCommand_JoinTeam`,
-  `SameMapTeardown`, or `PackEntities`.
+  `SameMapTeardown`, or `PackEntities`. `UTIL_Remove` is resolved from
+  gamedata against the `libserver.so` that hosts `IServerGameClients`
+  (Metamod ships another file of the same name) and called for leftover
+  kick controllers; it is not detoured.
 - CServerSideClient member offsets are compiled in. If a CS2 update moves
   them, the offsets in `src/ssc_ops.h` and `src/entity_access.cpp` need
-  updating and a rebuild is required.
+  updating and a rebuild is required. The `UTIL_Remove` signature lives
+  in `gamedata.json`.
 - Disconnect-time restore is best-effort. If a bot is removed and re-added
   in the same tick, the entity may already be gone. A consumer that reads
-  from the shm will see the slot as released and skip re-apply.
+  from the shm will see the slot as released and skip re-apply. Kick
+  leftovers are reaped on a later GameFrame after handle/userid checks.
 
 ## License
 

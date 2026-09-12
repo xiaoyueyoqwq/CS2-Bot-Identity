@@ -365,7 +365,7 @@ static bool IsNameInUse(const std::vector<BotIdentity>& bots, const std::string&
                         const BotIdentity* self = nullptr) {
     for (const auto& b : bots) {
         if (&b == self) continue;
-        if (b.slot >= 0 && b.applied && b.name == name) return true;
+        if (b.slot >= 0 && b.name == name) return true;
     }
     return false;
 }
@@ -376,7 +376,7 @@ static bool IsSteamIdInUse(const std::vector<BotIdentity>& bots, uint64_t steamI
     if (steamId == 0) return false;
     for (const auto& b : bots) {
         if (&b == self) continue;
-        if (b.slot >= 0 && b.applied && b.steamId == steamId) return true;
+        if (b.slot >= 0 && b.steamId == steamId) return true;
     }
     return false;
 }

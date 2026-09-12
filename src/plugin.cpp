@@ -4,6 +4,7 @@
 
 #include "plugin.h"
 #include "bot_info.h"
+#include "controller_reap.h"
 #include "entity_access.h"
 #include "shm_pub.h"
 #include "ssc_ops.h"
@@ -59,8 +60,14 @@ static uint32_t PickScoreboardFlair(const BotIdentity* identity) {
     return f.defaultScoreboardFlair;  // 0 means no flair
 }
 
-static void ApplyDisguise(int slot, BotIdentity* identity) {
+void ApplyDisguise(int slot, BotIdentity* identity) {
     if (!identity || identity->applied) return;
+    identity->slot = slot;
+    if (VoteTransactionActive()) {
+        META_CONPRINTF("[BotIdentity] disguise deferred slot=%d name='%s' (native hold)\n",
+                       slot, identity->name.c_str());
+        return;
+    }
 
     void* client = ResolveClientBySlot(slot);
     if (!client) return;
@@ -71,7 +78,6 @@ static void ApplyDisguise(int slot, BotIdentity* identity) {
     // breaks Steam CDN avatars for real accounts. GetFree() already refuses
     // to hand the same SteamID64 to two live slots.
 
-    // Step 1: Clear CServerSideClient::m_bFakePlayer (set bit pattern: 0x01 mask)
     ClearFakePlayer(client);
     // Step 2: Write SteamID from the bot list
     WriteSteamId(client, identity->steamId);
@@ -84,7 +90,6 @@ static void ApplyDisguise(int slot, BotIdentity* identity) {
         MarkEntityStateChanged(controller);
     }
 
-    identity->slot = slot;
     identity->applied = true;
 
     // Notify Bot-Improver C# plugins via shared memory
@@ -125,6 +130,42 @@ static void RestoreIdentity(int slot) {
 
     // Notify Bot-Improver C# plugins
     botid::PublishRelease(slot);
+}
+
+static bool IsKickCommand(const char* name) {
+    if (!name || !name[0]) return false;
+    return !std::strcmp(name, "bot_kick") ||
+           !std::strcmp(name, "kick") ||
+           !std::strcmp(name, "kickid") ||
+           !std::strcmp(name, "banid");
+}
+
+static bool IsBotAddCommand(const char* name) {
+    if (!name || !name[0]) return false;
+    return !std::strcmp(name, "bot_add") ||
+           !std::strcmp(name, "bot_add_t") ||
+           !std::strcmp(name, "bot_add_ct");
+}
+
+static bool IsPopulationCommand(const char* name) {
+    return IsKickCommand(name) || IsBotAddCommand(name);
+}
+
+static void ApplyPendingDisguises() {
+    for (int slot = 0; slot < kMaxSlots; ++slot) {
+        if (!IdentityMgr().IsManaged(slot)) continue;
+        BotIdentity* identity = IdentityMgr().GetIdentity(slot);
+        if (!identity || identity->applied) continue;
+        ApplyDisguise(slot, identity);
+    }
+}
+
+// network_connection.proto: KICKED=39, BANADDED=40, KICKBANADDED=41,
+// KICKED_TEAMKILLING=150 .. KICKED_INSECURECLIENT=164.
+static bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason) {
+    const int value = static_cast<int>(reason);
+    if (value == 39 || value == 40 || value == 41) return true;
+    return value >= 150 && value <= 164;
 }
 
 }  // namespace botid
@@ -189,7 +230,7 @@ void BotIdentityPlugin::Hook_ClientPutInServer_Post(
 }
 
 void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
-    CPlayerSlot slot, ENetworkDisconnectionReason /*reason*/, const char* /*pszName*/,
+    CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* /*pszName*/,
     uint64 /*xuid*/, const char* /*pszNetworkID*/)
 {
     if (!s_PluginActive) RETURN_META(MRES_IGNORED);
@@ -202,7 +243,11 @@ void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
     // the entity goes away so the restore path cannot touch freed objects.
     botid::ResetVoteTransactionSlot(slotIdx);
 
+    void* client = botid::ResolveClientBySlot(slotIdx);
     botid::RestoreIdentity(slotIdx);
+    if (client && botid::IsTargetedClientRemovalReason(reason)) {
+        botid::QueueControllerRemovalForClient(client, slotIdx);
+    }
     botid::IdentityMgr().Unmark(slotIdx);
 
     RETURN_META(MRES_IGNORED);
@@ -236,6 +281,13 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
     std::string gamedataPath = ismm->GetBaseDir();
     gamedataPath += "/addons/BotIdentity/gamedata.json";
     botid::LoadGamedata(gamedataPath.c_str());
+    botid::ResolveUtilRemove(gameclients);
+    META_CONPRINTF("[BotIdentity] UTIL_Remove=%s module='%s'\n",
+                   botid::UtilRemoveTarget() ? "ok" : "fail",
+                   botid::UtilRemoveModulePath());
+    META_CONPRINTF("[BotIdentity] ChangeTeam=%s index=%d\n",
+                   botid::ChangeTeamVtableIndex() >= 0 ? "ok" : "fail",
+                   botid::ChangeTeamVtableIndex());
 
     std::string baseDir = ismm->GetBaseDir();
 
@@ -294,8 +346,9 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
 
 bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
     s_PluginActive = false;
-    m_BotKickCommandDepth = 0;
+    m_PopulationCommandDepth = 0;
 
+    botid::ClearPendingControllerRemovals();
     botid::ResetVoteTransaction();
 
     SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients,
@@ -326,14 +379,25 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
     const char* name = command.GetName();
     if (!std::strcmp(name, "callvote")) {
         botid::BeginVoteTransaction();
-    } else if (!std::strcmp(name, "bot_kick")) {
+    } else if (botid::IsKickCommand(name)) {
+        // Official team leave while still disguised. Vote restore would turn
+        // them back into native bots before ClientDisconnect.
+        botid::MoveManagedBotsToSpectator();
         // Reuse an in-flight vote window so this Post cannot cancel its hold.
-        if (!botid::VoteTransactionActive() || m_BotKickCommandDepth != 0) {
+        if (!botid::VoteTransactionActive() || m_PopulationCommandDepth != 0) {
             botid::BeginVoteTransaction();
-            ++m_BotKickCommandDepth;
-            META_CONPRINTF("[BotIdentity] bot_kick identity transaction begin\n");
+            ++m_PopulationCommandDepth;
+            META_CONPRINTF("[BotIdentity] %s identity transaction begin\n", name);
         } else {
-            META_CONPRINTF("[BotIdentity] bot_kick identity transaction reuse vote window\n");
+            META_CONPRINTF("[BotIdentity] %s identity transaction reuse vote window\n", name);
+        }
+    } else if (botid::IsBotAddCommand(name)) {
+        // Native hold + bot_quota 0 kicks the new bot before disguise.
+        // Close any kick/vote window first so ApplyDisguise can run in
+        // OnClientConnected / ClientPutInServer during this command.
+        if (botid::VoteTransactionActive()) {
+            botid::ForceEndVoteTransaction();
+            META_CONPRINTF("[BotIdentity] %s ended native hold before add\n", name);
         }
     }
     RETURN_META(MRES_IGNORED);
@@ -351,10 +415,29 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Post(
         }
         RETURN_META(MRES_IGNORED);
     }
-    if (!std::strcmp(name, "bot_kick") && m_BotKickCommandDepth != 0) {
-        --m_BotKickCommandDepth;
-        botid::EndVoteTransaction();
-        META_CONPRINTF("[BotIdentity] bot_kick identity transaction end\n");
+    if (botid::IsKickCommand(name)) {
+        if (m_PopulationCommandDepth != 0) {
+            --m_PopulationCommandDepth;
+            if (m_PopulationCommandDepth == 0) {
+                botid::ScheduleVoteTransactionEnd(
+                    botid::BotInfos().Features().voteTransactionHoldFrames);
+                META_CONPRINTF("[BotIdentity] %s identity transaction scheduled hold\n", name);
+            }
+        }
+    }
+    if (botid::IsPopulationCommand(name)) {
+        if (botid::IsBotAddCommand(name)) {
+            botid::ApplyPendingDisguises();
+        }
+        // Hibernate with 0 humans often skips GameFrame; leftovers are
+        // queued in Disconnect during this command. Drain even when this
+        // Post reuses an already-open vote window (depth stays 0).
+        botid::DrainPendingControllerRemovals();
+        botid::DrainPendingControllerRemovals();
+        botid::ReapOrphanControllers();
+        botid::DumpOccupiedClients(name);
+        botid::DumpPlayerControllers(name);
+        botid::DumpTeamManagers(name);
     }
     RETURN_META(MRES_IGNORED);
 }
@@ -363,6 +446,7 @@ void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTi
     if (!s_PluginActive) return;
 
     botid::TickVoteTransaction();
+    botid::DrainPendingControllerRemovals();
 
     const auto& f = botid::BotInfos().Features();
     if (!f.enableFakePing) return;

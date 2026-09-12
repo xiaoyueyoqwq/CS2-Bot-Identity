@@ -15,9 +15,12 @@ void BeginVoteTransaction();
 // managed and whose client/controller did not change identity mid-vote.
 void EndVoteTransaction();
 
-// After callvote dispatch returns, keep native markers for `frames` more
-// GameFrame_Post callbacks so Valve's first vote Think still sees bots as
-// bots. Nested callvotes extend the same window rather than stacking closes.
+// After callvote / bot_kick dispatch returns, keep native markers for
+// `frames` more GameFrame_Post callbacks. callvote needs this so Valve's
+// first vote Think still sees bots as bots; kick needs it so deferred
+// disconnects still take the bot path. Nested commands extend the same
+// window rather than stacking closes. bot_add must not use this window:
+// bot_quota 0 kicks native bots before disguise can land.
 void ScheduleVoteTransactionEnd(int frames);
 
 // Count down a scheduled end. Must run at the start of GameFrame_Post,
@@ -28,6 +31,11 @@ void TickVoteTransaction();
 // True while native bot markers are applied for a vote, including the
 // post-dispatch GameFrame hold.
 bool VoteTransactionActive();
+
+// Restore disguises and drop the window immediately. Used when bot_add
+// arrives while a kick/vote hold is still open: native markers plus
+// bot_quota 0 kick the new bot before ApplyDisguise can run.
+void ForceEndVoteTransaction();
 
 // Emergency drop used on disconnect/teardown paths; discards snapshots so the
 // restore step will not touch entities that no longer belong to us.

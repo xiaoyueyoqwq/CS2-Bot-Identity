@@ -340,7 +340,17 @@ void RestorePlayerIdentity() {
         ++restored;
     }
 
-    VoteLog("[BotIdentity] vote transaction: player identity restored on %d slots\n", restored);
+    int deferred = 0;
+    for (int slot = 0; slot < kMaxSlots; ++slot) {
+        if (!IdentityMgr().IsManaged(slot)) continue;
+        BotIdentity* identity = IdentityMgr().GetIdentity(slot);
+        if (!identity || identity->applied) continue;
+        ApplyDisguise(slot, identity);
+        if (identity->applied) ++deferred;
+    }
+
+    VoteLog("[BotIdentity] vote transaction: player identity restored on %d slots deferred=%d\n",
+            restored, deferred);
 }
 
 }  // namespace
@@ -405,6 +415,15 @@ void TickVoteTransaction() {
 }
 
 bool VoteTransactionActive() { return g_VoteDepth != 0; }
+
+void ForceEndVoteTransaction() {
+    if (g_VoteDepth == 0 && !g_EndScheduled) return;
+    g_EndScheduled = false;
+    g_HoldFramesRemaining = 0;
+    g_VoteDepth = 0;
+    RestorePlayerIdentity();
+    VoteLog("[BotIdentity] vote transaction force-end\n");
+}
 
 void ResetVoteTransaction() {
     g_VoteDepth = 0;

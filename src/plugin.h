@@ -21,7 +21,7 @@ public:
     const char* GetDescription() override { return "Bot identity management — minimal implementation"; }
     const char* GetURL() override { return "https://github.com/xiaoyueyoqwq/CS2-Bot-Identity"; }
     const char* GetLicense() override { return "MIT"; }
-    const char* GetVersion() override { return "0.1.7"; }
+    const char* GetVersion() override { return "0.1.24"; }
     const char* GetDate() override { return __DATE__; }
     const char* GetLogTag() override { return "BOTIDENTITY"; }
 
@@ -39,8 +39,9 @@ private:
 
     // Last time we jittered pings, in seconds since epoch (wall-clock)
     double m_LastJitterTime = 0.0;
-    // Nesting for bot_kick identity windows; must not close a callvote hold.
-    unsigned int m_BotKickCommandDepth = 0;
+    // Nesting for bot_kick / kick identity windows; must not close a
+    // callvote hold. bot_add does not use this window.
+    unsigned int m_PopulationCommandDepth = 0;
 
 public:
     ISmmAPI* ismm_ = nullptr;

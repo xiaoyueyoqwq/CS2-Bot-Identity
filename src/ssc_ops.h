@@ -8,10 +8,21 @@ namespace botid {
 // CServerSideClient memory offsets (Linux defaults; gamedata overrides at runtime)
 inline int OFF_m_nConnectionTypeFlags = 96;   // byte
 inline int OFF_m_bFakePlayer          = 160;  // bool
+inline int OFF_m_UserID               = 168;  // uint16
 inline int OFF_m_SteamID             = 171;  // uint64
 inline int OFF_m_SteamIDMirror       = 179;  // uint64
 inline int OFF_m_nEntityIndex        = 76;   // int
+inline int OFF_m_nClientSlot         = 72;   // int
+inline int OFF_m_NetChannel          = 88;   // INetChannel*
+inline int OFF_m_nSignonState        = 100;  // SignonState_t (int)
 
+// CBaseEntity::m_iTeamNum on the controller (uint8/uint32). 0.1.22 live scan
+// CT=3 T=2. Writing 0 here (0.1.23) did not clear M occupancy; kick Pre
+// ChangeTeam(1) does.
+inline int OFF_Controller_TeamNum = 1572;
+// CCSPlayerController::ChangeTeam vtable index (live CSS gamedata linux 102).
+// Called as a function; JoinTeam is not hooked.
+inline int OFF_ChangeTeamVtable = 102;
 // CBaseEntity::m_fFlags on the controller (gamedata key keeps the old name).
 // Bit 0x100 is FL_FAKECLIENT, which CS:GO IsFakeClient() used to exclude voters.
 inline int OFF_Controller_FakeClientFlags = 904;  // uint32_t
@@ -65,7 +76,49 @@ inline int GetEntityIndex(const void* client) {
     return *reinterpret_cast<const int*>(raw + OFF_m_nEntityIndex);
 }
 
+inline uint16_t ReadUserId(const void* client) {
+    auto* raw = reinterpret_cast<const unsigned char*>(client);
+    uint16_t userId = 0;
+    std::memcpy(&userId, raw + OFF_m_UserID, sizeof(userId));
+    return userId;
+}
+
+inline int ReadClientSlot(const void* client) {
+    auto* raw = reinterpret_cast<const unsigned char*>(client);
+    return *reinterpret_cast<const int*>(raw + OFF_m_nClientSlot);
+}
+
+inline int ReadSignonState(const void* client) {
+    auto* raw = reinterpret_cast<const unsigned char*>(client);
+    return *reinterpret_cast<const int*>(raw + OFF_m_nSignonState);
+}
+
+inline void* ReadNetChannel(const void* client) {
+    auto* raw = reinterpret_cast<const unsigned char*>(client);
+    void* netChannel = nullptr;
+    std::memcpy(&netChannel, raw + OFF_m_NetChannel, sizeof(netChannel));
+    return netChannel;
+}
+
+inline unsigned char ReadConnectionTypeFlags(const void* client) {
+    auto* raw = reinterpret_cast<const unsigned char*>(client);
+    return raw[OFF_m_nConnectionTypeFlags];
+}
+
 // ─── Controller helpers ──────────────────────────────────────────────────────
+
+inline uint8_t ReadControllerTeam(const void* controller) {
+    auto* raw = reinterpret_cast<const unsigned char*>(controller);
+    uint32_t team = 0;
+    std::memcpy(&team, raw + OFF_Controller_TeamNum, sizeof(team));
+    return static_cast<uint8_t>(team);
+}
+
+inline void WriteControllerTeam(void* controller, uint8_t team) {
+    auto* raw = reinterpret_cast<unsigned char*>(controller);
+    uint32_t value = team;
+    std::memcpy(raw + OFF_Controller_TeamNum, &value, sizeof(value));
+}
 
 inline void ClearControllerFakeClientFlag(void* controller) {
     auto* raw = reinterpret_cast<unsigned char*>(controller);

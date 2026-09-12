@@ -41,6 +41,20 @@
     },
     "comment": "CUtlVector<CServerSideClient*> base offset"
   },
+  "CBaseEntity::m_iTeamNum": {
+    "offsets": {
+      "windows": 1572,
+      "linux": 1572
+    },
+    "comment": "uint8/uint32 team on CCSPlayerController; 0.1.22 live scan CT=3 T=2"
+  },
+  "CCSPlayerController_ChangeTeam": {
+    "offsets": {
+      "windows": 103,
+      "linux": 102
+    },
+    "comment": "vtable index; called as a function, not hooked. Spectator=1 leaves T/CT occupancy"
+  },
   "CBasePlayerController::FakeClientFlags": {
     "offsets": {
       "windows": 904,
@@ -55,12 +69,48 @@
     },
     "comment": "schema dump 0x0708; 0.1.2 live vote-window read was a heap pointer, not SteamID64. Vote path scans for the disguise SteamID64 instead of writing this offset unconditionally"
   },
+  "UTIL_Remove": {
+    "signatures": {
+      "library": "server",
+      "windows": "48 85 C9 74 ? 48 8B D1 48 8B 0D ? ? ? ?",
+      "linux": "48 89 FE 48 85 FF 74 ? 48 8D 05 ? ? ? ? 48"
+    },
+    "comment": "destroys leftover bot controllers after kick; called, not detoured"
+  },
   "CServerSideClient::m_nEntityIndex": {
     "offsets": {
       "windows": 76,
       "linux": 76
     },
     "comment": "entity index"
+  },
+  "CServerSideClient::m_nClientSlot": {
+    "offsets": {
+      "windows": 72,
+      "linux": 72
+    },
+    "comment": "client slot index"
+  },
+  "CServerSideClient::m_NetChannel": {
+    "offsets": {
+      "windows": 88,
+      "linux": 88
+    },
+    "comment": "INetChannel*; leftover challenging slots may be null"
+  },
+  "CServerSideClient::m_nSignonState": {
+    "offsets": {
+      "windows": 100,
+      "linux": 100
+    },
+    "comment": "SignonState_t; status challenging is this field"
+  },
+  "CServerSideClient::m_UserID": {
+    "offsets": {
+      "windows": 168,
+      "linux": 168
+    },
+    "comment": "uint16 userid; used to abort leftover-controller reap if the slot rebinds"
   },
   "CServerSideClient::m_nConnectionTypeFlags": {
     "offsets": {
