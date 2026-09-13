@@ -17,6 +17,9 @@
 #include <cstring>
 #include <ctime>
 
+#include <eiface.h>
+#include <tier1/convar.h>
+
 PLUGIN_GLOBALVARS();
 
 SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0,
@@ -151,6 +154,81 @@ static bool IsPopulationCommand(const char* name) {
     return IsKickCommand(name) || IsBotAddCommand(name);
 }
 
+// bot_kick all/t/ct walk fake-client flags after the identity window.
+// bot_kick <name> matches Valve profile names (status still shows
+// BeastTamer). CSS/BQM send the persona (INTEL). Map persona → userid
+// and issue kickid while native markers are already applied.
+static bool IsBotKickGroupTarget(const char* target) {
+    if (!target || !target[0]) return false;
+    return !std::strcmp(target, "all") ||
+           !std::strcmp(target, "t") ||
+           !std::strcmp(target, "ct");
+}
+
+static void CopyKickTarget(const char* src, char* dst, size_t cap) {
+    if (!dst || cap == 0) return;
+    dst[0] = '\0';
+    if (!src) return;
+    while (*src == '"' || *src == '\'' || *src == ' ' || *src == '\t') ++src;
+    size_t n = std::strlen(src);
+    while (n > 0) {
+        const char c = src[n - 1];
+        if (c != '"' && c != '\'' && c != ' ' && c != '\t') break;
+        --n;
+    }
+    if (n >= cap) n = cap - 1;
+    std::memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
+static int FindManagedSlotByPersonaName(const char* name) {
+    if (!name || !name[0]) return -1;
+    int found = -1;
+    for (int slot = 0; slot < kMaxSlots; ++slot) {
+        if (!IdentityMgr().IsManaged(slot)) continue;
+        const BotIdentity* identity = IdentityMgr().GetIdentity(slot);
+        if (!identity || identity->name != name) continue;
+        if (found < 0 || slot > found) found = slot;
+    }
+    return found;
+}
+
+static int NamedBotKickSlot(const char* commandName, const CCommand& arguments, char* targetOut, size_t targetCap) {
+    if (targetOut && targetCap) targetOut[0] = '\0';
+    if (!commandName || std::strcmp(commandName, "bot_kick") != 0) return -1;
+    if (arguments.ArgC() < 2) return -1;
+
+    char target[128];
+    CopyKickTarget(arguments.Arg(1), target, sizeof(target));
+    if (targetOut && targetCap) {
+        size_t n = std::strlen(target);
+        if (n >= targetCap) n = targetCap - 1;
+        std::memcpy(targetOut, target, n);
+        targetOut[n] = '\0';
+    }
+    if (!target[0] || IsBotKickGroupTarget(target)) return -1;
+    return FindManagedSlotByPersonaName(target);
+}
+
+static void KickManagedBotByUserId(int slot, const char* target) {
+    if (!engine || slot < 0) return;
+
+    void* client = ResolveClientBySlot(slot);
+    // 0 is a live userid on this dedicated build (first bot). 65535 is leftover.
+    uint16_t userId = client ? ReadUserId(client) : 65535;
+    if (userId == 65535) {
+        META_CONPRINTF("[BotIdentity] bot_kick named target='%s' slot=%d userid=%u invalid\n",
+                       target ? target : "", slot, static_cast<unsigned>(userId));
+        return;
+    }
+
+    META_CONPRINTF("[BotIdentity] bot_kick named target='%s' slot=%d -> kickid %u\n",
+                   target ? target : "", slot, static_cast<unsigned>(userId));
+    char cmd[64];
+    std::snprintf(cmd, sizeof(cmd), "kickid %u\n", static_cast<unsigned>(userId));
+    engine->ServerCommand(cmd);
+}
+
 static void ApplyPendingDisguises() {
     for (int slot = 0; slot < kMaxSlots; ++slot) {
         if (!IdentityMgr().IsManaged(slot)) continue;
@@ -169,6 +247,19 @@ static bool IsTargetedClientRemovalReason(ENetworkDisconnectionReason reason) {
 }
 
 }  // namespace botid
+
+CON_COMMAND_F(botidentity_dump,
+              "Dump BotIdentity client/controller occupancy (read-only).",
+              FCVAR_NONE)
+{
+    (void)context;
+    (void)args;
+    if (!s_PluginActive) return;
+    META_CONPRINTF("[BotIdentity] dump version=%s\n", g_BotIdentityPlugin.GetVersion());
+    botid::DumpOccupiedClients("botidentity_dump");
+    botid::DumpPlayerControllers("botidentity_dump");
+    botid::DumpTeamManagers("botidentity_dump");
+}
 
 void BotIdentityPlugin::Hook_OnClientConnected_Post(
     CPlayerSlot slot, const char* pszName, uint64 xuid,
@@ -243,9 +334,17 @@ void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
     // the entity goes away so the restore path cannot touch freed objects.
     botid::ResetVoteTransactionSlot(slotIdx);
 
+    const bool kickRemoval = botid::IsTargetedClientRemovalReason(reason);
+    if (kickRemoval) {
+        // Official team leave while still disguised. Must run before
+        // RestoreIdentity, and only for this slot: kick Pre used to move
+        // every managed bot to spectator, so bot_kick ct/t kicked nobody.
+        botid::MoveManagedBotToSpectator(slotIdx);
+    }
+
     void* client = botid::ResolveClientBySlot(slotIdx);
     botid::RestoreIdentity(slotIdx);
-    if (client && botid::IsTargetedClientRemovalReason(reason)) {
+    if (client && kickRemoval) {
         botid::QueueControllerRemovalForClient(client, slotIdx);
     }
     botid::IdentityMgr().Unmark(slotIdx);
@@ -340,6 +439,7 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
         SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Post), true);
 
     srand((unsigned int)time(nullptr));
+    ConVar_Register(FCVAR_RELEASE | FCVAR_GAMEDLL);
     s_PluginActive = true;
     return true;
 }
@@ -365,6 +465,7 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
         SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Post), true);
 
     botid::ShutdownSharedMemory();
+    ConVar_Unregister();
     META_CONPRINTF("[BotIdentity] unloaded\n");
     return true;
 }
@@ -373,23 +474,51 @@ void BotIdentityPlugin::AllPluginsLoaded() {
 }
 
 void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
-    ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& /*arguments*/)
+    ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& arguments)
 {
     if (!s_PluginActive || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
     const char* name = command.GetName();
     if (!std::strcmp(name, "callvote")) {
         botid::BeginVoteTransaction();
     } else if (botid::IsKickCommand(name)) {
-        // Official team leave while still disguised. Vote restore would turn
-        // them back into native bots before ClientDisconnect.
-        botid::MoveManagedBotsToSpectator();
-        // Reuse an in-flight vote window so this Post cannot cancel its hold.
-        if (!botid::VoteTransactionActive() || m_PopulationCommandDepth != 0) {
-            botid::BeginVoteTransaction();
-            ++m_PopulationCommandDepth;
-            META_CONPRINTF("[BotIdentity] %s identity transaction begin\n", name);
+        char namedTarget[128];
+        const int namedSlot = botid::NamedBotKickSlot(name, arguments, namedTarget, sizeof(namedTarget));
+        if (namedSlot >= 0) {
+            // BQM -1: leave T/CT while still disguised, then native-mark
+            // only this slot so remaining scoreboard rows keep their SteamIDs.
+            botid::MoveManagedBotToSpectator(namedSlot);
+            if (!botid::VoteTransactionActive() || m_PopulationCommandDepth != 0) {
+                botid::BeginVoteTransactionForSlot(namedSlot);
+                ++m_PopulationCommandDepth;
+                META_CONPRINTF("[BotIdentity] %s named identity transaction begin slot=%d\n",
+                               name, namedSlot);
+            } else {
+                META_CONPRINTF("[BotIdentity] %s named identity transaction reuse vote window slot=%d\n",
+                               name, namedSlot);
+            }
+            botid::KickManagedBotByUserId(namedSlot, namedTarget);
+        } else if (!std::strcmp(name, "bot_kick") && namedTarget[0] &&
+                   !botid::IsBotKickGroupTarget(namedTarget)) {
+            META_CONPRINTF("[BotIdentity] bot_kick named target='%s' no managed match\n",
+                           namedTarget);
         } else {
-            META_CONPRINTF("[BotIdentity] %s identity transaction reuse vote window\n", name);
+            // bot_kick all (BQM 移除所有) / bare bot_kick: leave T/CT while
+            // still disguised so the team-select backdrop drops occupancy.
+            // Do not Pre-ChangeTeam bot_kick t/ct — engine would see an
+            // empty team (0.1.24 fake-death). Those stay Disconnect_Pre.
+            if (!std::strcmp(name, "bot_kick") &&
+                (!namedTarget[0] || !std::strcmp(namedTarget, "all"))) {
+                for (int slot = 0; slot < botid::kMaxSlots; ++slot)
+                    botid::MoveManagedBotToSpectator(slot);
+            }
+            // Reuse an in-flight vote window so this Post cannot cancel its hold.
+            if (!botid::VoteTransactionActive() || m_PopulationCommandDepth != 0) {
+                botid::BeginVoteTransaction();
+                ++m_PopulationCommandDepth;
+                META_CONPRINTF("[BotIdentity] %s identity transaction begin\n", name);
+            } else {
+                META_CONPRINTF("[BotIdentity] %s identity transaction reuse vote window\n", name);
+            }
         }
     } else if (botid::IsBotAddCommand(name)) {
         // Native hold + bot_quota 0 kicks the new bot before disguise.

@@ -22,9 +22,11 @@ void DumpPlayerControllers(const char* tag);
 // appear in their memory. Read-only; does not write CTeam vectors.
 void DumpTeamManagers(const char* tag);
 
-// Kick Pre: still-disguised managed bots on T/CT call ChangeTeam(1) spectator
-// before native-identity restore. JoinTeam is not hooked.
-void MoveManagedBotsToSpectator();
+// Kick/ban ClientDisconnect: still-disguised managed bot on T/CT calls
+// ChangeTeam(1) spectator before native-identity restore. JoinTeam is not
+// hooked. Only the disconnecting slot is moved — kick Pre must not walk
+// every managed bot or bot_kick ct/t sees an empty team.
+bool MoveManagedBotToSpectator(int slot);
 
 // After a kick/add command: leftover controllers still on T/CT are moved to
 // spectator (or team 0 if already deleting) and UTIL_Remove'd even if they

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Verify SteamID64s have a public custom avatar and are not VAC-banned.
+"""Verify SteamID64s have a public custom avatar.
+
+VAC status is recorded but not a reject reason: the native plugin only
+writes SteamID64 into engine fields for CDN avatars, it does not Steam-auth
+as that account.
 
 Usage:
   python3 tools/verify_steamids.py --ids 7656119... 7656119...
@@ -96,9 +100,6 @@ def verify_one(steamid: int) -> dict:
     avatar = av_m.group(1) if av_m else ""
     hash_m = HASH_RE.search(avatar)
     out["avatar_hash"] = hash_m.group(1) if hash_m else ""
-    if out["vac"] == 1:
-        out["reason"] = "vac"
-        return out
     if not out["avatar_hash"]:
         out["reason"] = "no-avatar"
         return out

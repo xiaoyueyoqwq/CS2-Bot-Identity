@@ -10,6 +10,12 @@ namespace botid {
 // shows the disguise SteamID64 actually lives there.
 void BeginVoteTransaction();
 
+// Same window/hold/restore state machine, but only the given managed slot
+// is snapshotted and written native. Remaining disguised bots keep their
+// SteamIDs so a BQM -1 does not blank the scoreboard. Nested Begin of the
+// all-slot form only increments depth and does not recapture.
+void BeginVoteTransactionForSlot(int slot);
+
 // Closes one nesting level of the vote transaction. When the outermost level
 // closes, the player disguise is re-applied to every slot that is still
 // managed and whose client/controller did not change identity mid-vote.

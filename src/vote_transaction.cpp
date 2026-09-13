@@ -217,52 +217,68 @@ void ApplyNativeVoteMarkers(VoteSlotSnapshot& snapshot, void* client, void* cont
     WriteSteamId(client, 0);
 }
 
+void ClearVoteSnapshots() {
+    for (auto& snapshot : g_VoteSnapshots) snapshot = VoteSlotSnapshot{};
+}
+
+bool CaptureOneManagedSlot(int slot) {
+    if (slot < 0 || slot >= kMaxVoteSlots || slot >= kMaxSlots) return false;
+
+    auto& snapshot = g_VoteSnapshots[slot];
+    snapshot = VoteSlotSnapshot{};
+    if (!IdentityMgr().IsManaged(slot)) {
+        VoteLog("[BotIdentity] vote transaction: skip unmanaged slot=%d\n", slot);
+        return false;
+    }
+
+    void* client = ResolveClientBySlot(slot);
+    if (!client) {
+        VoteLog("[BotIdentity] vote transaction: client resolve failed slot=%d\n", slot);
+        return false;
+    }
+
+    auto* raw = reinterpret_cast<unsigned char*>(client);
+    const int entityIndex = GetEntityIndex(client);
+
+    snapshot.captured = true;
+    snapshot.slot = slot;
+    snapshot.client = client;
+    snapshot.entityIndex = entityIndex;
+    snapshot.connectionFlags = raw[OFF_m_nConnectionTypeFlags];
+    snapshot.fakePlayer = raw[OFF_m_bFakePlayer];
+    snapshot.sscSteamId = ReadSteamId(client);
+
+    void* controller = nullptr;
+    uint32_t handle = 0;
+    if (ResolveController(entityIndex, &controller, &handle)) {
+        snapshot.hasController = true;
+        snapshot.controller = controller;
+        snapshot.controllerHandle = handle;
+        snapshot.controllerFlags = *reinterpret_cast<uint32_t*>(
+            reinterpret_cast<unsigned char*>(controller) + OFF_Controller_FakeClientFlags);
+        snapshot.controllerOff1800 = ReadControllerSteamId(controller);
+    }
+
+    ApplyNativeVoteMarkers(snapshot, client, snapshot.hasController ? controller : nullptr);
+
+    char offs[96];
+    FormatCopyOffsets(snapshot, offs, sizeof(offs));
+    VoteLog("[BotIdentity] vote transaction: native bot identity restored slot=%d ssc_sid=%llu->0 ctrl1800=%llu copies=%d offs=%s controller=%s\n",
+            slot,
+            static_cast<unsigned long long>(snapshot.sscSteamId),
+            static_cast<unsigned long long>(snapshot.controllerOff1800),
+            snapshot.copyCount,
+            offs,
+            snapshot.hasController ? "ok" : "missing");
+    LogIdentityProbe(snapshot, "begin");
+    return true;
+}
+
 void CaptureAndRestoreNativeBotIdentity() {
+    ClearVoteSnapshots();
     for (int slot = 0; slot < kMaxVoteSlots && slot < kMaxSlots; ++slot) {
-        auto& snapshot = g_VoteSnapshots[slot];
-        snapshot = VoteSlotSnapshot{};
         if (!IdentityMgr().IsManaged(slot)) continue;
-
-        void* client = ResolveClientBySlot(slot);
-        if (!client) {
-            VoteLog("[BotIdentity] vote transaction: client resolve failed slot=%d\n", slot);
-            continue;
-        }
-
-        auto* raw = reinterpret_cast<unsigned char*>(client);
-        const int entityIndex = GetEntityIndex(client);
-
-        snapshot.captured = true;
-        snapshot.slot = slot;
-        snapshot.client = client;
-        snapshot.entityIndex = entityIndex;
-        snapshot.connectionFlags = raw[OFF_m_nConnectionTypeFlags];
-        snapshot.fakePlayer = raw[OFF_m_bFakePlayer];
-        snapshot.sscSteamId = ReadSteamId(client);
-
-        void* controller = nullptr;
-        uint32_t handle = 0;
-        if (ResolveController(entityIndex, &controller, &handle)) {
-            snapshot.hasController = true;
-            snapshot.controller = controller;
-            snapshot.controllerHandle = handle;
-            snapshot.controllerFlags = *reinterpret_cast<uint32_t*>(
-                reinterpret_cast<unsigned char*>(controller) + OFF_Controller_FakeClientFlags);
-            snapshot.controllerOff1800 = ReadControllerSteamId(controller);
-        }
-
-        ApplyNativeVoteMarkers(snapshot, client, snapshot.hasController ? controller : nullptr);
-
-        char offs[96];
-        FormatCopyOffsets(snapshot, offs, sizeof(offs));
-        VoteLog("[BotIdentity] vote transaction: native bot identity restored slot=%d ssc_sid=%llu->0 ctrl1800=%llu copies=%d offs=%s controller=%s\n",
-                slot,
-                static_cast<unsigned long long>(snapshot.sscSteamId),
-                static_cast<unsigned long long>(snapshot.controllerOff1800),
-                snapshot.copyCount,
-                offs,
-                snapshot.hasController ? "ok" : "missing");
-        LogIdentityProbe(snapshot, "begin");
+        CaptureOneManagedSlot(slot);
     }
     g_VoteSnapshotValid = true;
 }
@@ -359,6 +375,16 @@ void BeginVoteTransaction() {
     if (g_VoteDepth++ == 0) {
         CaptureAndRestoreNativeBotIdentity();
         VoteLog("[BotIdentity] vote transaction begin\n");
+    }
+}
+
+void BeginVoteTransactionForSlot(int slot) {
+    if (g_VoteDepth++ == 0) {
+        ClearVoteSnapshots();
+        const bool captured = CaptureOneManagedSlot(slot);
+        g_VoteSnapshotValid = captured;
+        VoteLog("[BotIdentity] vote transaction begin slot=%d captured=%d\n",
+                slot, captured ? 1 : 0);
     }
 }
 

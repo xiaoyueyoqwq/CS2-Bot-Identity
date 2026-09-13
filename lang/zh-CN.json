@@ -92,7 +92,7 @@
       "scoreboardFlair": 2481
     },
     "Bot14": {
-      "steamid": 76561198276783314,
+      "steamid": 76561198315882277,
       "name": "八重神子",
       "ping": 47,
       "crosshair": "",
@@ -232,123 +232,298 @@
       "scoreboardFlair": 0
     },
     "Bot34": {
-      "steamid": 76561198147368622,
-      "name": "这把我C",
-      "ping": 30,
-      "crosshair": "CSGO-PBTCN-A6CVN-IPXJT-LQG51-FQI9T",
-      "scoreboardFlair": 0
-    },
-    "Bot35": {
       "steamid": 76561198444116345,
       "name": "中门对狙",
       "ping": 63,
       "crosshair": "CSGO-EIQ17-04NG5-YVFN2-HHE0X-7PC87",
       "scoreboardFlair": 2153
     },
-    "Bot36": {
+    "Bot35": {
       "steamid": 76561198109051570,
       "name": "这把先ban你",
       "ping": 47,
       "crosshair": "CSGO-89H1C-H3WQ4-AV7JP-948I3-9ES4U",
       "scoreboardFlair": 2480
     },
-    "Bot37": {
+    "Bot36": {
       "steamid": 76561198123521350,
       "name": "报点不报人",
       "ping": 67,
       "crosshair": "",
       "scoreboardFlair": 2153
     },
-    "Bot38": {
-      "steamid": 76561198390017163,
-      "name": "CS老登",
-      "ping": 55,
-      "crosshair": "CSGO-ZVNEC-XDI3U-PMGVH-1LKM4-B8C02",
-      "scoreboardFlair": 4321
-    },
-    "Bot39": {
+    "Bot37": {
       "steamid": 76561198971792012,
       "name": "原神怎么你了",
       "ping": 88,
       "crosshair": "CSGO-8Z7D9-OSO1Q-50YBM-HYQE6-4XFOU",
       "scoreboardFlair": 0
     },
-    "Bot40": {
+    "Bot38": {
       "steamid": 76561199104834868,
       "name": "对线文学硕士",
       "ping": 87,
       "crosshair": "CSGO-LA9CZ-ODHPU-Y222S-HQDSL-O76BR",
       "scoreboardFlair": 0
     },
-    "Bot41": {
+    "Bot39": {
       "steamid": 76561198030816679,
       "name": "菜是原罪",
       "ping": 83,
       "crosshair": "CSGO-VW5FE-DIDWR-DIIP4-ZOGF7-A11GN",
       "scoreboardFlair": 4661
     },
-    "Bot42": {
+    "Bot40": {
       "steamid": 76561198009518758,
       "name": "带飞不带躺",
       "ping": 73,
       "crosshair": "",
       "scoreboardFlair": 2483
     },
-    "Bot43": {
+    "Bot41": {
       "steamid": 76561198836637713,
       "name": "人机检测中",
       "ping": 73,
       "crosshair": "CSGO-EDCH2-9CKTK-6YDIN-DA2Z6-MX2XL",
       "scoreboardFlair": 3226
     },
-    "Bot44": {
-      "steamid": 76561198062836745,
-      "name": "打完去搬砖",
-      "ping": 68,
-      "crosshair": "CSGO-F98WE-SKJTT-N1RQ7-ZKHLY-ELA2A",
-      "scoreboardFlair": 0
-    },
-    "Bot45": {
-      "steamid": 76561198023695266,
-      "name": "我妈喊我吃饭",
-      "ping": 62,
-      "crosshair": "",
-      "scoreboardFlair": 2153
-    },
-    "Bot46": {
-      "steamid": 76561197998105649,
-      "name": "不急在刷抖音",
-      "ping": 38,
-      "crosshair": "",
-      "scoreboardFlair": 0
-    },
-    "Bot47": {
-      "steamid": 76561197996310822,
-      "name": "这枪我没听过",
-      "ping": 64,
-      "crosshair": "",
-      "scoreboardFlair": 3825
-    },
-    "Bot48": {
-      "steamid": 76561197998572923,
-      "name": "天台见谢谢",
-      "ping": 83,
-      "crosshair": "CSGO-DU7ZY-L48TF-3Y1UO-HZIQX-MRNHM",
-      "scoreboardFlair": 3226
-    },
-    "Bot49": {
+    "Bot42": {
       "steamid": 76561198157352094,
       "name": "拼好枪启动",
       "ping": 58,
       "crosshair": "CSGO-BANKY-N7P93-AA5UL-AHNYN-RLY0J",
       "scoreboardFlair": 1370
     },
-    "Bot50": {
+    "Bot43": {
       "steamid": 76561198844672399,
       "name": "闪光弹是我爹",
       "ping": 90,
       "crosshair": "",
       "scoreboardFlair": 1370
+    },
+    "Bot44": {
+      "steamid": 76561199018280001,
+      "name": "chaoji",
+      "ping": 28,
+      "crosshair": "CSGO-M9OZ1-5NPW6-SY5O0-LAMEI-G4Y7V",
+      "scoreboardFlair": 2481
+    },
+    "Bot45": {
+      "steamid": 76561198219575941,
+      "name": "KuuToRi",
+      "ping": 41,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot46": {
+      "steamid": 76561199030871437,
+      "name": "C6H8FNO4",
+      "ping": 36,
+      "crosshair": "CSGO-XWYWH-KQ62L-2VP2T-1TX4H-9TT1B",
+      "scoreboardFlair": 2153
+    },
+    "Bot47": {
+      "steamid": 76561199512279717,
+      "name": "iiix",
+      "ping": 52,
+      "crosshair": "",
+      "scoreboardFlair": 2480
+    },
+    "Bot48": {
+      "steamid": 76561199025463262,
+      "name": "Rust元气少女(＾－＾)V",
+      "ping": 24,
+      "crosshair": "CSGO-7T25I-KPNWF-31I3D-YM4JS-VNF4S",
+      "scoreboardFlair": 0
+    },
+    "Bot49": {
+      "steamid": 76561198357429634,
+      "name": "星野爱",
+      "ping": 33,
+      "crosshair": "CSGO-N1L1C-1B12W-OGRYG-CG8X2-FHVCI",
+      "scoreboardFlair": 2483
+    },
+    "Bot50": {
+      "steamid": 76561199079274286,
+      "name": "神里绫华",
+      "ping": 45,
+      "crosshair": "",
+      "scoreboardFlair": 2153
+    },
+    "Bot51": {
+      "steamid": 76561199235465431,
+      "name": "雷电将军",
+      "ping": 61,
+      "crosshair": "CSGO-MD61J-J55BF-RR2MV-9XPV5-T0HSY",
+      "scoreboardFlair": 5226
+    },
+    "Bot52": {
+      "steamid": 76561198424059732,
+      "name": "那维莱特",
+      "ping": 39,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot53": {
+      "steamid": 76561198811553825,
+      "name": "星见雅",
+      "ping": 71,
+      "crosshair": "CSGO-LZDTZ-CYOBO-9BWPQ-9VWU8-D9Y10",
+      "scoreboardFlair": 2480
+    },
+    "Bot54": {
+      "steamid": 76561199523278629,
+      "name": "波奇酱",
+      "ping": 56,
+      "crosshair": "CSGO-CWFVR-22YKJ-015FZ-FXC2E-HCSWU",
+      "scoreboardFlair": 2481
+    },
+    "Bot55": {
+      "steamid": 76561198108133022,
+      "name": "一眼丁真",
+      "ping": 49,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot56": {
+      "steamid": 76561199001098783,
+      "name": "Claude AI",
+      "ping": 66,
+      "crosshair": "CSGO-SAZLF-3IVKM-LW3MG-T9ODP-I1CAZ",
+      "scoreboardFlair": 0
+    },
+    "Bot57": {
+      "steamid": 76561198406494299,
+      "name": "ChatGPT",
+      "ping": 22,
+      "crosshair": "",
+      "scoreboardFlair": 3226
+    },
+    "Bot58": {
+      "steamid": 76561199033501587,
+      "name": "DeepSeek",
+      "ping": 76,
+      "crosshair": "CSGO-WLAKI-RDBAI-WUKPS-AYLQV-U4W37",
+      "scoreboardFlair": 0
+    },
+    "Bot59": {
+      "steamid": 76561198016724673,
+      "name": "Google",
+      "ping": 84,
+      "crosshair": "",
+      "scoreboardFlair": 2153
+    },
+    "Bot60": {
+      "steamid": 76561198177345315,
+      "name": "INTEL",
+      "ping": 58,
+      "crosshair": "CSGO-H7W0K-23LDB-COQWW-SEW5N-FQQZA",
+      "scoreboardFlair": 0
+    },
+    "Bot61": {
+      "steamid": 76561197984161874,
+      "name": "HELLDIVER",
+      "ping": 79,
+      "crosshair": "",
+      "scoreboardFlair": 4661
+    },
+    "Bot62": {
+      "steamid": 76561199183787096,
+      "name": "加油华为",
+      "ping": 31,
+      "crosshair": "CSGO-F98WE-SKJTT-N1RQ7-ZKHLY-ELA2A",
+      "scoreboardFlair": 1370
+    },
+    "Bot63": {
+      "steamid": 76561198129846697,
+      "name": "胡桃",
+      "ping": 43,
+      "crosshair": "",
+      "scoreboardFlair": 2153
+    },
+    "Bot64": {
+      "steamid": 76561198155717096,
+      "name": "クドリャフカ",
+      "ping": 27,
+      "crosshair": "",
+      "scoreboardFlair": 0
+    },
+    "Bot65": {
+      "steamid": 76561198104196718,
+      "name": "千叶红叶",
+      "ping": 54,
+      "crosshair": "CSGO-57P0F-WMCMY-VZGRW-TFZ4O-H1WPF",
+      "scoreboardFlair": 2153
+    },
+    "Bot66": {
+      "steamid": 76561198860486843,
+      "name": "喜多郁代",
+      "ping": 38,
+      "crosshair": "CSGO-CWFVR-22YKJ-015FZ-FXC2E-HCSWU",
+      "scoreboardFlair": 2481
+    },
+    "Bot67": {
+      "steamid": 76561199179011195,
+      "name": "东雪莲",
+      "ping": 63,
+      "crosshair": "",
+      "scoreboardFlair": 2483
+    },
+    "Bot68": {
+      "steamid": 76561199225088893,
+      "name": "永雏塔菲",
+      "ping": 47,
+      "crosshair": "CSGO-XWYWH-KQ62L-2VP2T-1TX4H-9TT1B",
+      "scoreboardFlair": 0
+    },
+    "Bot69": {
+      "steamid": 76561199527300484,
+      "name": "illusion",
+      "ping": 21,
+      "crosshair": "",
+      "scoreboardFlair": 2153
+    },
+    "Bot70": {
+      "steamid": 76561198994554743,
+      "name": "Sakya",
+      "ping": 69,
+      "crosshair": "CSGO-7T25I-KPNWF-31I3D-YM4JS-VNF4S",
+      "scoreboardFlair": 0
+    },
+    "Bot71": {
+      "steamid": 76561199237548199,
+      "name": "⑨",
+      "ping": 88,
+      "crosshair": "",
+      "scoreboardFlair": 3226
+    },
+    "Bot72": {
+      "steamid": 76561198388131208,
+      "name": "十七！！",
+      "ping": 34,
+      "crosshair": "CSGO-LJ8YY-F1YBU-KFQC5-0RQZG-GIIBW",
+      "scoreboardFlair": 0
+    },
+    "Bot73": {
+      "steamid": 76561198994612679,
+      "name": "星辰不复醒",
+      "ping": 72,
+      "crosshair": "",
+      "scoreboardFlair": 1370
+    },
+    "Bot74": {
+      "steamid": 76561199507736206,
+      "name": "原枫万叶",
+      "ping": 29,
+      "crosshair": "CSGO-MD61J-J55BF-RR2MV-9XPV5-T0HSY",
+      "scoreboardFlair": 0
+    },
+    "Bot75": {
+      "steamid": 76561199118009561,
+      "name": "xAI",
+      "ping": 81,
+      "crosshair": "",
+      "scoreboardFlair": 2153
     }
   }
 }

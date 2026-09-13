@@ -369,43 +369,36 @@ void DumpTeamManagers(const char* tag) {
             found, leftoverCount, handleHits, label);
 }
 
-void MoveManagedBotsToSpectator() {
+bool MoveManagedBotToSpectator(int slot) {
+    if (slot < 0 || slot >= kMaxSlots) return false;
     if (ChangeTeamVtableIndex() < 0) {
         ReapLog("ChangeTeam skipped: vtable index unset\n");
-        return;
+        return false;
     }
+    if (!IdentityMgr().IsManaged(slot)) return false;
 
-    int moved = 0;
-    int failed = 0;
-    for (int slot = 0; slot < kMaxSlots; ++slot) {
-        if (!IdentityMgr().IsManaged(slot)) continue;
-        void* client = ResolveClientBySlot(slot);
-        if (!client) continue;
-        const int entityIndex = GetEntityIndex(client);
-        char className[64] = {0};
-        void* controller = ResolveEntityInstance(entityIndex, className, sizeof(className));
-        if (!controller || std::strcmp(className, "cs_player_controller") != 0) continue;
-        if (IsEntityBeingDeleted(controller)) {
-            ReapLog("ChangeTeam skipped slot=%d entIdx=%d: already deleting\n",
-                    slot, entityIndex);
-            continue;
-        }
-        const uint8_t team = ReadControllerTeam(controller);
-        if (team != 2 && team != 3) continue;
-        const bool ok = CallControllerChangeTeam(controller, kSpectatorTeam);
-        const uint8_t after = ReadControllerTeam(controller);
-        ReapLog("ChangeTeam slot=%d entIdx=%d team=%u -> 1 ok=%d after=%u\n",
-                slot,
-                entityIndex,
-                static_cast<unsigned int>(team),
-                ok ? 1 : 0,
-                static_cast<unsigned int>(after));
-        if (ok) ++moved;
-        else ++failed;
+    void* client = ResolveClientBySlot(slot);
+    if (!client) return false;
+    const int entityIndex = GetEntityIndex(client);
+    char className[64] = {0};
+    void* controller = ResolveEntityInstance(entityIndex, className, sizeof(className));
+    if (!controller || std::strcmp(className, "cs_player_controller") != 0) return false;
+    if (IsEntityBeingDeleted(controller)) {
+        ReapLog("ChangeTeam skipped slot=%d entIdx=%d: already deleting\n",
+                slot, entityIndex);
+        return false;
     }
-    if (moved != 0 || failed != 0) {
-        ReapLog("ChangeTeam spectator moved=%d failed=%d\n", moved, failed);
-    }
+    const uint8_t team = ReadControllerTeam(controller);
+    if (team != 2 && team != 3) return false;
+    const bool ok = CallControllerChangeTeam(controller, kSpectatorTeam);
+    const uint8_t after = ReadControllerTeam(controller);
+    ReapLog("ChangeTeam slot=%d entIdx=%d team=%u -> 1 ok=%d after=%u\n",
+            slot,
+            entityIndex,
+            static_cast<unsigned int>(team),
+            ok ? 1 : 0,
+            static_cast<unsigned int>(after));
+    return ok;
 }
 
 void ReapOrphanControllers() {

@@ -9,7 +9,7 @@
 namespace botid {
 
 constexpr int kMaxSlots = 64;
-constexpr int kMaxBotIdentities = 64;
+constexpr int kMaxBotIdentities = 256;
 // Must match shm_pub.h kShmNameLen - 1 (31 bytes UTF-8 + NUL).
 constexpr size_t kMaxPersonaNameBytes = 31;
 

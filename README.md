@@ -19,8 +19,11 @@ On `IServerGameClients::OnClientConnected`, for fake-player (bot) clients:
 
 On `OnClientDisconnect`, restore the bot to its native state and publish
 slot release to the same shm region. Kick/ban disconnects first call
-`CCSPlayerController::ChangeTeam(1)` (spectator) while the bot is still
-disguised, then queue the controller for a deferred `UTIL_Remove`.
+`CCSPlayerController::ChangeTeam(1)` (spectator) on **that slot** while
+the bot is still disguised, then queue the controller for a deferred
+`UTIL_Remove`. Kick command Pre does not walk every managed bot: 0.1.24
+did, so `bot_kick ct`/`t` saw an empty team, left bots in spectator, and
+match start spawned them via `info_player_start` (missing on CS maps).
 Player-mode disguise otherwise makes Valve keep that controller on T/CT
 (team-select occupancy and scoreboard ghosts) after the name has already
 left the player list.
@@ -29,9 +32,32 @@ left the player list.
 
 Player-mode disguise makes Valve count managed bots as human voters and
 treat `bot_kick` as a human disconnect. `callvote`, `bot_kick` /
-`kick` / `kickid` / `banid` share one identity transaction:
+`kick` / `kickid` / `banid` share one identity transaction.
+Named `bot_kick <persona>` does not match Valve profile names (`status`
+still shows BeastTamer while CSS/BQM use INTEL). 0.1.28 maps a managed
+persona to that slot's userid and issues `kickid` inside the identity
+window so BQM `-1` can remove one bot. Userid 0 is valid (first bot);
+only 65535 is rejected. `bot_kick all` / `t` / `ct` are unchanged.
 
-1. `DispatchConCommand` pre snapshots each managed slot and restores
+0.1.29: named `bot_kick <persona>` (BQM `-1`) no longer opens the
+all-slot identity window. While the target is still disguised it
+`ChangeTeam(1)`s that slot only, then snapshots/natives **that slot**,
+then `kickid`. Remaining managed bots keep their SteamIDs so the
+scoreboard does not drop their rows. Nested `kickid` only increments
+vote depth and does not recapture everyone. `callvote` and `bot_kick
+all` / `t` / `ct` still use the full window. `botidentity_dump` prints
+the same occupancy lines as population Post without kicking anyone.
+
+0.1.30: BQM 「移除所有 BOT」is `bot_kick all`. That path used to native
+every managed slot *before* `ChangeTeam`, so the team-select backdrop
+kept pawn occupancy after the kick; later `+1` stacked on those
+ghosts. `bot_kick all` (and bare `bot_kick`) now `ChangeTeam(1)`s
+every managed slot while still disguised, then opens the full window.
+`bot_kick t` / `ct` still do **not** Pre-ChangeTeam (0.1.24 fake-death:
+engine saw an empty team).
+
+1. `DispatchConCommand` pre snapshots each managed slot (full window)
+   or only the named slot (0.1.29) and restores
    Valve's native bot markers without `MarkEntityStateChanged`:
    `m_bFakePlayer`, controller `FL_FAKECLIENT` (`0x100`), and the
    `CServerSideClient` SteamID pair set to 0. It then scans the SSC
@@ -161,17 +187,20 @@ If `lang/zh-CN.json` is selected but missing, empty, or unreadable, the
 plugin falls back to `bots.json` and logs a warning. Load log includes the
 CSS tag, the match (`zh-CN` or `default`), and the file used.
 
-The cap is 64 identities (`kMaxBotIdentities`). Persona names are at most
+The identity pool cap is `kMaxBotIdentities` (256). Live engine slots stay
+64; `GetFree()` draws at random from the pool. Persona names are at most
 31 bytes of UTF-8 (Chinese ≈ 10 characters); longer names are truncated on
 a code-point boundary and logged.
 
-`lang/zh-CN.json` keeps the 15 二次元 names and the CNCS 神人 IDs, and
+`lang/zh-CN.json` keeps the 二次元 names and the CNCS 神人 IDs, and
 replaces bland 路人 names with shorter meme lines. Each `steamid` in that
 file is a real SteamID64 whose community profile has a non-default avatar,
 so the scoreboard can fetch it from the Steam CDN. Clicking the avatar
-opens that real profile. Identities are not bound to VAC-banned accounts
-or pro player IDs. Recycle no longer rewrites the low 16 bits of the
-SteamID64 (`sidReuseMutate=off`); two live slots never share one ID.
+opens that real profile. Identities are not bound to pro player IDs.
+VAC on the borrowed profile does not affect a VAC-secured server: the
+plugin never Steam-auths as that account. Recycle no longer rewrites the
+low 16 bits of the SteamID64 (`sidReuseMutate=off`); two live slots never
+share one ID.
 
 ### `bots.json` / `lang/zh-CN.json` — per-bot identity list
 
