@@ -369,6 +369,31 @@ void DumpTeamManagers(const char* tag) {
             found, leftoverCount, handleHits, label);
 }
 
+int NeutralizeCollidingLeftoverUserIds(int keepSlot, uint16_t userId) {
+    if (keepSlot < 0 || keepSlot >= kMaxSlots) return 0;
+    if (userId == 65535) return 0;
+
+    int rewritten = 0;
+    for (int slot = 0; slot < kMaxSlots; ++slot) {
+        if (slot == keepSlot) continue;
+        void* client = ResolveClientBySlot(slot);
+        if (!client) continue;
+        if (IdentityMgr().IsManaged(slot)) continue;
+        if (ReadNetChannel(client) != nullptr) continue;
+        if (ReadSteamId(client) != 0) continue;
+        if (ReadUserId(client) != userId) continue;
+
+        WriteUserId(client, 65535);
+        ++rewritten;
+        ReapLog("userid collision neutralized slot=%d keep=%d userid=%u signon=%d\n",
+                slot,
+                keepSlot,
+                static_cast<unsigned int>(userId),
+                ReadSignonState(client));
+    }
+    return rewritten;
+}
+
 bool MoveManagedBotToSpectator(int slot) {
     if (slot < 0 || slot >= kMaxSlots) return false;
     if (ChangeTeamVtableIndex() < 0) {

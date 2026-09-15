@@ -83,6 +83,11 @@ inline uint16_t ReadUserId(const void* client) {
     return userId;
 }
 
+inline void WriteUserId(void* client, uint16_t userId) {
+    auto* raw = reinterpret_cast<unsigned char*>(client);
+    std::memcpy(raw + OFF_m_UserID, &userId, sizeof(userId));
+}
+
 inline int ReadClientSlot(const void* client) {
     auto* raw = reinterpret_cast<const unsigned char*>(client);
     return *reinterpret_cast<const int*>(raw + OFF_m_nClientSlot);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace botid {
 
 // Queue the controller belonging to a managed bot that is being kicked so
@@ -21,6 +23,12 @@ void DumpPlayerControllers(const char* tag);
 // Log cs_team_manager entities and whether leftover controller handles still
 // appear in their memory. Read-only; does not write CTeam vectors.
 void DumpTeamManagers(const char* tag);
+
+// Before kickid <userid>: leftover CServerSideClient entries can share that
+// userid (signon=7, no netchan). Engine then kicks the ghost. Rewrite those
+// leftover userids to 65535 so kickid hits keepSlot. Does not null m_Clients
+// entries. Returns how many leftovers were rewritten.
+int NeutralizeCollidingLeftoverUserIds(int keepSlot, uint16_t userId);
 
 // Kick/ban ClientDisconnect: still-disguised managed bot on T/CT calls
 // ChangeTeam(1) spectator before native-identity restore. JoinTeam is not

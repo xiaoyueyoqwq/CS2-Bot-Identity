@@ -56,6 +56,13 @@ every managed slot while still disguised, then opens the full window.
 `bot_kick t` / `ct` still do **not** Pre-ChangeTeam (0.1.24 fake-death:
 engine saw an empty team).
 
+0.1.31: leftover `CServerSideClient` rows keep the kicked bot's userid
+(`signon=7`, no netchan). Named `kickid <userid>` then hits that ghost
+(Valve name `NebulaNomad` / `lov1kus`) while the disguised slot only
+went spectator and respawned next round. Before `kickid`, unmanaged
+clients with the same userid, no netchan, and SteamID 0 are rewritten
+to userid 65535. `m_Clients` pointers are not nulled.
+
 1. `DispatchConCommand` pre snapshots each managed slot (full window)
    or only the named slot (0.1.29) and restores
    Valve's native bot markers without `MarkEntityStateChanged`:

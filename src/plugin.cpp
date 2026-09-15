@@ -222,8 +222,9 @@ static void KickManagedBotByUserId(int slot, const char* target) {
         return;
     }
 
-    META_CONPRINTF("[BotIdentity] bot_kick named target='%s' slot=%d -> kickid %u\n",
-                   target ? target : "", slot, static_cast<unsigned>(userId));
+    const int collisions = botid::NeutralizeCollidingLeftoverUserIds(slot, userId);
+    META_CONPRINTF("[BotIdentity] bot_kick named target='%s' slot=%d -> kickid %u collisions=%d\n",
+                   target ? target : "", slot, static_cast<unsigned>(userId), collisions);
     char cmd[64];
     std::snprintf(cmd, sizeof(cmd), "kickid %u\n", static_cast<unsigned>(userId));
     engine->ServerCommand(cmd);
