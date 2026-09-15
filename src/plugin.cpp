@@ -18,6 +18,8 @@
 #include <ctime>
 
 #include <eiface.h>
+#include <interfaces/interfaces.h>
+#include <iserver.h>
 #include <tier1/convar.h>
 
 PLUGIN_GLOBALVARS();
@@ -40,7 +42,12 @@ IServerGameClients* gameclients = nullptr;
 IServerGameDLL*     gameserver  = nullptr;
 ICvar*              icvar       = nullptr;
 
+class INetworkServerService;
+extern INetworkServerService* g_pNetworkServerService;
+
 static bool s_PluginActive = false;
+static bool s_MapSuspended = false;
+static std::string s_GateMap;
 
 namespace botid {
 
@@ -64,6 +71,7 @@ static uint32_t PickScoreboardFlair(const BotIdentity* identity) {
 }
 
 void ApplyDisguise(int slot, BotIdentity* identity) {
+    if (s_MapSuspended) return;
     if (!identity || identity->applied) return;
     identity->slot = slot;
     if (VoteTransactionActive()) {
@@ -133,6 +141,91 @@ static void RestoreIdentity(int slot) {
 
     // Notify Bot-Improver C# plugins
     botid::PublishRelease(slot);
+}
+
+static const char* EngineMapName() {
+    if (!g_pNetworkServerService) return "";
+    auto* gameServer = g_pNetworkServerService->GetIGameServer();
+    if (!gameServer) return "";
+    const char* name = gameServer->GetMapName();
+    return name ? name : "";
+}
+
+static const char* EngineAddonName() {
+    if (!g_pNetworkServerService) return "";
+    auto* gameServer = g_pNetworkServerService->GetIGameServer();
+    if (!gameServer) return "";
+    const char* name = gameServer->GetAddonName();
+    return name ? name : "";
+}
+
+// Prefer GetMapName (same string PluginToggle reads as Server.MapName).
+// Workshop maps can leave GetAddonName set after changelevel; do not
+// concatenate it onto a later official map or cabin tokens stay hot.
+static std::string BuildMapIdentity() {
+    const char* map = EngineMapName();
+    if (map && map[0]) return map;
+    const char* addon = EngineAddonName();
+    if (addon && addon[0]) return addon;
+    return "";
+}
+
+static int ReleaseManagedSlots() {
+    ResetVoteTransaction();
+    int released = 0;
+    for (int slot = 0; slot < kMaxSlots; ++slot) {
+        if (!IdentityMgr().IsManaged(slot)) continue;
+        RestoreIdentity(slot);
+        IdentityMgr().Unmark(slot);
+        ++released;
+    }
+    return released;
+}
+
+void ApplyMapGate(const char* mapName) {
+    if (!mapName || !mapName[0]) return;
+    if (s_GateMap == mapName) return;
+    s_GateMap = mapName;
+
+    std::string token;
+    const bool match = BotInfos().MapMatchesBlacklist(mapName, &token);
+    if (match) {
+        const int released = s_MapSuspended ? 0 : ReleaseManagedSlots();
+        s_MapSuspended = true;
+        META_CONPRINTF("[BotIdentity] map blacklist match='%s' token='%s' suspend=1 managedReleased=%d\n",
+                       mapName, token.c_str(), released);
+        return;
+    }
+
+    if (s_MapSuspended) {
+        s_MapSuspended = false;
+        META_CONPRINTF("[BotIdentity] map blacklist miss='%s' suspend=0\n", mapName);
+        return;
+    }
+    META_CONPRINTF("[BotIdentity] map blacklist miss='%s' suspend=0\n", mapName);
+}
+
+void PollMapGate() {
+    const std::string id = BuildMapIdentity();
+    if (id.empty()) return;
+    ApplyMapGate(id.c_str());
+}
+
+// host_workshop_map Arg(1) is often the workshop id, available before
+// GetMapName is 'cabin'. Match → suspend now. Miss does not unsuspend:
+// the live map is still the previous one until PollMapGate sees it.
+void HintMapGate(const char* mapName) {
+    if (!mapName || !mapName[0]) return;
+    if (!BotInfos().MapMatchesBlacklist(mapName, nullptr)) return;
+    ApplyMapGate(mapName);
+}
+
+static bool IsMapChangeCommand(const char* name) {
+    if (!name || !name[0]) return false;
+    return !std::strcmp(name, "host_workshop_map") ||
+           !std::strcmp(name, "ds_workshop_changelevel") ||
+           !std::strcmp(name, "changelevel") ||
+           !std::strcmp(name, "map");
 }
 
 static bool IsKickCommand(const char* name) {
@@ -231,6 +324,7 @@ static void KickManagedBotByUserId(int slot, const char* target) {
 }
 
 static void ApplyPendingDisguises() {
+    if (s_MapSuspended) return;
     for (int slot = 0; slot < kMaxSlots; ++slot) {
         if (!IdentityMgr().IsManaged(slot)) continue;
         BotIdentity* identity = IdentityMgr().GetIdentity(slot);
@@ -256,7 +350,16 @@ CON_COMMAND_F(botidentity_dump,
     (void)context;
     (void)args;
     if (!s_PluginActive) return;
-    META_CONPRINTF("[BotIdentity] dump version=%s\n", g_BotIdentityPlugin.GetVersion());
+    META_CONPRINTF("[BotIdentity] dump version=%s suspended=%d map='%s' live='%s' addon='%s' blacklist=%zu\n",
+                   g_BotIdentityPlugin.GetVersion(),
+                   s_MapSuspended ? 1 : 0,
+                   s_GateMap.c_str(),
+                   botid::EngineMapName(),
+                   botid::EngineAddonName(),
+                   botid::BotInfos().MapBlacklist().size());
+    for (const auto& token : botid::BotInfos().MapBlacklist()) {
+        META_CONPRINTF("[BotIdentity] dump blacklist token='%s'\n", token.c_str());
+    }
     botid::DumpOccupiedClients("botidentity_dump");
     botid::DumpPlayerControllers("botidentity_dump");
     botid::DumpTeamManagers("botidentity_dump");
@@ -270,6 +373,14 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
     if (!s_PluginActive) RETURN_META(MRES_IGNORED);
     if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
     if (pszName && std::strncmp(pszName, "HLTV", 4) == 0) RETURN_META(MRES_IGNORED);
+    if (s_MapSuspended) {
+        if (botid::IdentityMgr().IsManaged(slotIdx)) {
+            botid::IdentityMgr().Unmark(slotIdx);
+            botid::PublishRelease(slotIdx);
+            botid::ResetVoteTransactionSlot(slotIdx);
+        }
+        RETURN_META(MRES_IGNORED);
+    }
 
     // If this slot was previously managed, ALWAYS release the shm state
     // before we determine whether to re-disguise. This prevents stale
@@ -306,7 +417,7 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
 void BotIdentityPlugin::Hook_ClientPutInServer_Post(
     CPlayerSlot slot, const char* /*pszName*/, int /*type*/, uint64 /*xuid*/)
 {
-    if (!s_PluginActive) RETURN_META(MRES_IGNORED);
+    if (!s_PluginActive || s_MapSuspended) RETURN_META(MRES_IGNORED);
 
     int slotIdx = slot.Get();
     if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
@@ -325,7 +436,7 @@ void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
     CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* /*pszName*/,
     uint64 /*xuid*/, const char* /*pszNetworkID*/)
 {
-    if (!s_PluginActive) RETURN_META(MRES_IGNORED);
+    if (!s_PluginActive || s_MapSuspended) RETURN_META(MRES_IGNORED);
 
     int slotIdx = slot.Get();
     if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
@@ -356,6 +467,10 @@ void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
 bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late) {
     PLUGIN_SAVEVARS();
     ismm_ = ismm;
+    // ISmmPlugin::OnLevelInit is not called unless this plugin is in
+    // CPlugin::m_Events. host_workshop_map into cabin never reached the
+    // 0.1.32 override because AddListener was missing.
+    ismm->AddListener(this, this);
 
     GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
     GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);
@@ -411,14 +526,15 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
                     botList.cssLanguageFound ? botList.cssLanguage.c_str() : "(missing)",
                     botList.matched.c_str(),
                     botList.relativeFile.c_str());
-    ismm->ConPrintf("[BotIdentity] loaded version=%s bot_count=%d fakePing=%d-%d jitter=%d%% flair=%.0f%% voteHoldFrames=%d ctrlSteamIdWrite=scan sidReuseMutate=off\n",
+    ismm->ConPrintf("[BotIdentity] loaded version=%s bot_count=%d fakePing=%d-%d jitter=%d%% flair=%.0f%% voteHoldFrames=%d mapBlacklist=%zu ctrlSteamIdWrite=scan sidReuseMutate=off\n",
                     GetVersion(),
                     botid::BotInfos().Count(),
                     botid::BotInfos().Features().fakePingMin,
                     botid::BotInfos().Features().fakePingMax,
                     botid::BotInfos().Features().pingJitterPercent,
                     botid::BotInfos().Features().scoreboardFlairProbability * 100.0,
-                    botid::BotInfos().Features().voteTransactionHoldFrames);
+                    botid::BotInfos().Features().voteTransactionHoldFrames,
+                    botid::BotInfos().MapBlacklist().size());
 
     srand(static_cast<unsigned int>(time(nullptr)));
 
@@ -442,11 +558,14 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
     srand((unsigned int)time(nullptr));
     ConVar_Register(FCVAR_RELEASE | FCVAR_GAMEDLL);
     s_PluginActive = true;
+    botid::PollMapGate();
     return true;
 }
 
 bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
     s_PluginActive = false;
+    s_MapSuspended = false;
+    s_GateMap.clear();
     m_PopulationCommandDepth = 0;
 
     botid::ClearPendingControllerRemovals();
@@ -474,10 +593,19 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
 void BotIdentityPlugin::AllPluginsLoaded() {
 }
 
+void BotIdentityPlugin::OnLevelInit(char const* pMapName, char const* /*pMapEntities*/,
+                                    char const* /*pOldLevel*/, char const* /*pLandmarkName*/,
+                                    bool /*loadGame*/, bool /*background*/)
+{
+    if (pMapName && pMapName[0])
+        botid::ApplyMapGate(pMapName);
+    botid::PollMapGate();
+}
+
 void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
     ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& arguments)
 {
-    if (!s_PluginActive || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
+    if (!s_PluginActive || s_MapSuspended || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
     const char* name = command.GetName();
     if (!std::strcmp(name, "callvote")) {
         botid::BeginVoteTransaction();
@@ -534,10 +662,17 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
 }
 
 void BotIdentityPlugin::Hook_DispatchConCommand_Post(
-    ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& /*arguments*/)
+    ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& arguments)
 {
     if (!command.IsValidRef()) RETURN_META(MRES_IGNORED);
     const char* name = command.GetName();
+    if (botid::IsMapChangeCommand(name)) {
+        if (arguments.ArgC() >= 2)
+            botid::HintMapGate(arguments.Arg(1));
+        botid::PollMapGate();
+        RETURN_META(MRES_IGNORED);
+    }
+    if (s_MapSuspended) RETURN_META(MRES_IGNORED);
     if (!std::strcmp(name, "callvote")) {
         if (botid::VoteTransactionActive()) {
             botid::ScheduleVoteTransactionEnd(
@@ -574,6 +709,13 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Post(
 
 void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTick*/, bool /*bLastTick*/) {
     if (!s_PluginActive) return;
+
+    // Same reason PluginToggle waits for OnServerPreWorldUpdate: map name
+    // is empty at Load() and may stay empty through OnLevelInit on
+    // host_workshop_map. Re-evaluate even while already suspended so
+    // leaving cabin can resume hosting.
+    botid::PollMapGate();
+    if (s_MapSuspended) return;
 
     botid::TickVoteTransaction();
     botid::DrainPendingControllerRemovals();

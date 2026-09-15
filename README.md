@@ -63,6 +63,26 @@ went spectator and respawned next round. Before `kickid`, unmanaged
 clients with the same userid, no netchan, and SteamID 0 are rewritten
 to userid 65535. `m_Clients` pointers are not nulled.
 
+0.1.32: native `.so` cannot be hot-unloaded. `mapBlacklist` in
+`config.json` is a PluginToggle-style case-insensitive substring list
+(workshop maps look like `workshop/<id>/<bsp>`). A match suspends all
+hosting: restore managed slots to Valve bots, skip disguise / vote
+windows / named `kickid` / ping jitter. The `.so` stays loaded. Leaving
+the map resumes hosting for **new** bots only. Missing or empty list
+never suspends. Default tokens match PluginToggle cabin:
+`3171695956`, `cabin`. Does not kick bots or null `m_Clients`.
+
+0.1.33: 0.1.32 only evaluated the gate in `Load()` (map name still
+empty) and in `IMetamodListener::OnLevelInit`, but never called
+`AddListener`, so Metamod never delivered `OnLevelInit`.
+`host_workshop_map` into cabin therefore never wrote `s_GateMap`.
+Empty-string substring match is a no-op (does not unsuspend). The
+gate now also polls `IGameServer::GetMapName()` / `GetAddonName()`
+every GameFrame, and `host_workshop_map` / `ds_workshop_changelevel`
+/ `changelevel` / `map` Arg(1) can suspend as soon as the command
+runs. `botidentity_dump` prints `live=` and `addon=` next to `map=`
+(`s_GateMap`).
+
 1. `DispatchConCommand` pre snapshots each managed slot (full window)
    or only the named slot (0.1.29) and restores
    Valve's native bot markers without `MarkEntityStateChanged`:
@@ -156,7 +176,8 @@ omitted (defaults apply). Which bot list is used follows CounterStrikeSharp
     "defaultScoreboardFlair": 0,
     "pingJitterPercent": 30,
     "voteTransactionHoldFrames": 3
-  }
+  },
+  "mapBlacklist": ["3171695956", "cabin"]
 }
 ```
 
@@ -171,6 +192,7 @@ omitted (defaults apply). Which bot list is used follows CounterStrikeSharp
 | `defaultScoreboardFlair` | uint32 | 0 | Fallback flair when per-bot value is unset |
 | `pingJitterPercent` | int | 30 | ±N% per-bot ping jitter applied every 30s |
 | `voteTransactionHoldFrames` | int | 3 | GameFrame ticks to keep native bot markers after `callvote` returns (clamped 1–32) |
+| `mapBlacklist` | string[] | `[]` | Top-level (not inside `features`). Case-insensitive substring tokens against live `GetMapName()` (same string PluginToggle uses as `Server.MapName`), then `GetAddonName()` if the map name is still empty. `host_workshop_map` Arg(1) can suspend early; leaving a map only unsuspends when the live name is non-empty and misses. Omit or `[]` → never suspend. |
 
 Per-bot overrides take precedence: if a bot has `"ping": 18` in `bots.json`
 and `18 < fakePingMin`, the bot keeps 18 as its base, then the jitter

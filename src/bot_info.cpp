@@ -82,6 +82,18 @@ static void LogWarning(const char* fmt, ...) {
     std::fprintf(stderr, "[BotIdentity] %s", buf);
 }
 
+static std::string TrimAscii(std::string s) {
+    size_t start = 0;
+    while (start < s.size() && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r')) {
+        ++start;
+    }
+    size_t end = s.size();
+    while (end > start && (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\n' || s[end - 1] == '\r')) {
+        --end;
+    }
+    return s.substr(start, end - start);
+}
+
 static std::string TruncateUtf8(const std::string& s, size_t maxBytes) {
     if (s.size() <= maxBytes) return s;
     size_t i = maxBytes;
@@ -156,6 +168,8 @@ bool BotInfo::Load(const char* path) {
 
     if (!MatchChar(json, i, '{')) return false;
 
+    m_MapBlacklist.clear();
+
     while (SkipWhitespace(json, i) && json[i] != '}') {
         std::string key = ReadKey(json, i);
         if (key.empty()) break;
@@ -189,6 +203,21 @@ bool BotInfo::Load(const char* path) {
                     m_Features.voteTransactionHoldFrames = (int)ReadUInt64(json, i);
                 }
             });
+        } else if (key == "mapBlacklist") {
+            if (MatchChar(json, i, '[')) {
+                while (SkipWhitespace(json, i) && json[i] != ']') {
+                    if (json[i] == '"') {
+                        std::string tok = TrimAscii(ReadString(json, i));
+                        if (!tok.empty()) m_MapBlacklist.push_back(tok);
+                    } else {
+                        SkipJsonValue(json, i);
+                    }
+                    if (!MatchChar(json, i, ',')) break;
+                }
+                MatchChar(json, i, ']');
+            } else {
+                SkipJsonValue(json, i);
+            }
         } else {
             // Unknown top-level key: skip it
             if (json[i] == '{') {
@@ -214,7 +243,7 @@ bool BotInfo::Load(const char* path) {
 }
 
 bool BotInfo::LoadFeatures(const char* path) {
-    return Load(path);  // config.json 只含 features，Load 已处理
+    return Load(path);  // config.json: features + optional mapBlacklist
 }
 
 bool BotInfo::LoadBots(const char* path) {

@@ -21,9 +21,13 @@ public:
     const char* GetDescription() override { return "Bot identity management — minimal implementation"; }
     const char* GetURL() override { return "https://github.com/xiaoyueyoqwq/CS2-Bot-Identity"; }
     const char* GetLicense() override { return "MIT"; }
-    const char* GetVersion() override { return "0.1.31"; }
+    const char* GetVersion() override { return "0.1.33"; }
     const char* GetDate() override { return __DATE__; }
     const char* GetLogTag() override { return "BOTIDENTITY"; }
+
+    void OnLevelInit(char const* pMapName, char const* pMapEntities,
+                     char const* pOldLevel, char const* pLandmarkName,
+                     bool loadGame, bool background) override;
 
 private:
     void Hook_OnClientConnected_Post(

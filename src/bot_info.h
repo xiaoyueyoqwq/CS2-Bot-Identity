@@ -55,6 +55,30 @@ struct PluginFeatures {
     int voteTransactionHoldFrames = 3;
 };
 
+// PluginToggle-style map token match: case-insensitive substring.
+// Empty mapName or empty tokens never match. matchedToken (if set) is
+// the configured token that hit, not the lowercased copy.
+inline std::string AsciiLowerCopy(std::string s) {
+    for (char& c : s) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    return s;
+}
+
+inline bool MapNameMatchesBlacklist(const char* mapName,
+                                    const std::vector<std::string>& tokens,
+                                    std::string* matchedToken = nullptr) {
+    if (!mapName || !mapName[0] || tokens.empty()) return false;
+    const std::string hay = AsciiLowerCopy(mapName);
+    for (const auto& token : tokens) {
+        if (token.empty()) continue;
+        if (hay.find(AsciiLowerCopy(token)) == std::string::npos) continue;
+        if (matchedToken) *matchedToken = token;
+        return true;
+    }
+    return false;
+}
+
 // BotInfo: loads bot identities from JSON config
 class BotInfo {
 public:
@@ -71,12 +95,17 @@ public:
     BotIdentity* At(int idx);  // mutable access (for IdentityManager)
 
     const PluginFeatures& Features() const { return m_Features; }
+    const std::vector<std::string>& MapBlacklist() const { return m_MapBlacklist; }
+    bool MapMatchesBlacklist(const char* mapName, std::string* matchedToken = nullptr) const {
+        return MapNameMatchesBlacklist(mapName, m_MapBlacklist, matchedToken);
+    }
     int DroppedOnLoad() const { return m_DroppedOnLoad; }
     int TruncatedOnLoad() const { return m_TruncatedOnLoad; }
 
 private:
     std::vector<BotIdentity> m_Bots;
     PluginFeatures m_Features;
+    std::vector<std::string> m_MapBlacklist;
     int m_DroppedOnLoad = 0;
     int m_TruncatedOnLoad = 0;
 };

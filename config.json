@@ -9,5 +9,6 @@
     "defaultScoreboardFlair": 0,
     "pingJitterPercent": 30,
     "voteTransactionHoldFrames": 3
-  }
+  },
+  "mapBlacklist": ["3171695956", "cabin"]
 }
