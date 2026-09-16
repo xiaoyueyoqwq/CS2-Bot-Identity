@@ -215,7 +215,7 @@ python3 tools/verify_steamids.py --json lang/zh-CN.json
 
 ## Map blacklist
 
-`mapBlacklist` is a PluginToggle-style case-insensitive substring list
+`mapBlacklist` is a [PluginToggle](https://github.com/xiaoyueyoqwq/CS2-Plugin-Toggle)-style case-insensitive substring list
 (workshop maps look like `workshop/<id>/<bsp>`). A match **suspends
 hosting** without unloading the `.so`:
 
@@ -224,11 +224,11 @@ hosting** without unloading the `.so`:
 
 Leaving the map resumes hosting for **new** bots only. Already-native
 bots on the server are not re-disguised. Missing or empty list never
-suspends. Default tokens match PluginToggle cabin: `3171695956`, `cabin`.
+suspends. Default tokens match [PluginToggle](https://github.com/xiaoyueyoqwq/CS2-Plugin-Toggle) cabin: `3171695956`, `cabin`.
 The gate does not kick bots and does not null `m_Clients` pointers.
 
 Matching uses live `IGameServer::GetMapName()` first (the same string
-PluginToggle reads as `Server.MapName`), then `GetAddonName()` if the map
+[PluginToggle](https://github.com/xiaoyueyoqwq/CS2-Plugin-Toggle) reads as `Server.MapName`), then `GetAddonName()` if the map
 name is still empty. Workshop maps can leave `GetAddonName` set after a
 later official `changelevel`; the two strings are **not** concatenated, or
 cabin tokens would stay hot.
@@ -468,7 +468,7 @@ Linux defaults currently compiled in:
 | CS2-Bot-Improve `BotHiderImpl` | Reads the same shm region for scoreboard appearance |
 | This repo `BotIdentityImpl` | Reads the same shm region; publishes `botidentity:api`; writes teammate colors |
 | BotQuotaManager-style quota plugins | Add/remove via `bot_kick <persona>` or `bot_kick all`; do not kick Valve default names |
-| PluginToggle | Unloads C# plugins by map. Cabin-style maps must also be in `mapBlacklist`, or the native layer still disguises |
+| [PluginToggle](https://github.com/xiaoyueyoqwq/CS2-Plugin-Toggle) | Unloads C# plugins by map. Cabin-style maps must also be in `mapBlacklist`, or the native layer still disguises |
 | BotVoteFix / CS2-Vote-Improver | Valve's voter ledger is still Valve's. BotIdentity only temporarily restores native bot markers in the command window |
 
 Vote-window research notes that are not install docs live in
