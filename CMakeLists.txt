@@ -55,8 +55,11 @@ add_custom_command(
     VERBATIM
 )
 
-# SDK source files that Metamod plugins must compile themselves
-set(SDK_SOURCES ${PROTO_SRCS}
+# SDK source files that Metamod plugins must compile themselves.
+# NOTE: PROTO_SRCS generates the .pb.h headers eiface.h needs, but we do NOT
+# compile them — BotIdentity uses no protobuf objects and linking .pb.cc would
+# drag in the descriptor_table symbols (needs libprotobuf.a).
+set(SDK_SOURCES
     ${HL2SDK}/public/tier0/memoverride.cpp
     ${HL2SDK}/tier1/convar.cpp
     
@@ -98,7 +101,6 @@ target_compile_definitions(BotIdentity PRIVATE
     META_IS_SOURCE2
     PLATFORM_64BITS
     X64BITS
-    KHOOK_STANDALONE
 )
 
 if(WIN32)
