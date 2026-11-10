@@ -2,6 +2,7 @@
 
 #include <ISmmPlugin.h>
 #include <playerslot.h>
+#include <eiface.h>
 #include <string>
 
 class ConCommandRef;
@@ -29,7 +30,6 @@ public:
                      char const* pOldLevel, char const* pLandmarkName,
                      bool loadGame, bool background) override;
 
-private:
     void Hook_OnClientConnected_Post(
         CPlayerSlot slot, const char* pszName, uint64 xuid,
         const char* pszNetworkID, const char* pszAddress, bool bFakePlayer);
@@ -41,6 +41,7 @@ private:
     void Hook_DispatchConCommand_Pre(ConCommandRef command, const CCommandContext& ctx, const CCommand& arguments);
     void Hook_DispatchConCommand_Post(ConCommandRef command, const CCommandContext& ctx, const CCommand& arguments);
 
+private:
     // Last time we jittered pings, in seconds since epoch (wall-clock)
     double m_LastJitterTime = 0.0;
     // Nesting for bot_kick / kick identity windows; must not close a

@@ -24,18 +24,67 @@
 
 PLUGIN_GLOBALVARS();
 
-SH_DECL_HOOK6_void(IServerGameClients, OnClientConnected, SH_NOATTRIB, 0,
-    CPlayerSlot, const char*, uint64, const char*, const char*, bool);
-SH_DECL_HOOK4_void(IServerGameClients, ClientPutInServer, SH_NOATTRIB, 0,
-    CPlayerSlot, const char*, int, uint64);
-SH_DECL_HOOK5_void(IServerGameClients, ClientDisconnect, SH_NOATTRIB, 0,
-    CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*);
-SH_DECL_HOOK3_void(IServerGameDLL, GameFrame, SH_NOATTRIB, 0, bool, bool, bool);
-SH_DECL_HOOK3_void(ICvar, DispatchConCommand, SH_NOATTRIB, 0, ConCommandRef, const CCommandContext&, const CCommand&);
+// API18: SourceHook removed upstream — hooks migrate to KHook::Virtual.
+// All six callbacks are observation-only (former MRES_IGNORED) so each
+// KHook callback returns Action::Ignore after delegating to the member fn.
+#include <khook.hpp>
+#include <memory>
+
+using HookConnectedBase =
+    KHook::Virtual<IServerGameClients, void, CPlayerSlot, const char*, uint64, const char*, const char*, bool>;
+using HookPutInBase =
+    KHook::Virtual<IServerGameClients, void, CPlayerSlot, const char*, int, uint64>;
+using HookDisconnectBase =
+    KHook::Virtual<IServerGameClients, void, CPlayerSlot, ENetworkDisconnectionReason, const char*, uint64, const char*>;
+using HookGameFrameBase =
+    KHook::Virtual<IServerGameDLL, void, bool, bool, bool>;
+using HookConCmdBase =
+    KHook::Virtual<ICvar, void, ConCommandRef, const CCommandContext&, const CCommand&>;
+
+static std::unique_ptr<HookConnectedBase>   g_hkConnected;
+static std::unique_ptr<HookPutInBase>       g_hkPutIn;
+static std::unique_ptr<HookDisconnectBase>  g_hkDisconnect;
+static std::unique_ptr<HookGameFrameBase>   g_hkGameFrame;
+static std::unique_ptr<HookConCmdBase>      g_hkConCmdPre;
+static std::unique_ptr<HookConCmdBase>      g_hkConCmdPost;
 
 PLUGIN_GLOBALVARS();
 BotIdentityPlugin g_BotIdentityPlugin;
 PLUGIN_EXPOSE(BotIdentityPlugin, g_BotIdentityPlugin);
+
+// KHook callbacks: free functions that forward to the member handlers.
+static KHook::Return<void> K_OnClientConnected(IServerGameClients*, CPlayerSlot s, const char* n,
+                                             uint64 x, const char* nid, const char* addr, bool fake)
+{
+    g_BotIdentityPlugin.Hook_OnClientConnected_Post(s, n, x, nid, addr, fake);
+    return { KHook::Action::Ignore };
+}
+static KHook::Return<void> K_ClientPutInServer(IServerGameClients*, CPlayerSlot s, const char* n, int t, uint64 x)
+{
+    g_BotIdentityPlugin.Hook_ClientPutInServer_Post(s, n, t, x);
+    return { KHook::Action::Ignore };
+}
+static KHook::Return<void> K_ClientDisconnect(IServerGameClients*, CPlayerSlot s, ENetworkDisconnectionReason r,
+                                              const char* n, uint64 x, const char* nid)
+{
+    g_BotIdentityPlugin.Hook_ClientDisconnect_Pre(s, r, n, x, nid);
+    return { KHook::Action::Ignore };
+}
+static KHook::Return<void> K_GameFrame(IServerGameDLL*, bool sim, bool first, bool last)
+{
+    g_BotIdentityPlugin.Hook_GameFrame_Post(sim, first, last);
+    return { KHook::Action::Ignore };
+}
+static KHook::Return<void> K_ConCmdPre(ICvar*, ConCommandRef c, const CCommandContext& x, const CCommand& a)
+{
+    g_BotIdentityPlugin.Hook_DispatchConCommand_Pre(c, x, a);
+    return { KHook::Action::Ignore };
+}
+static KHook::Return<void> K_ConCmdPost(ICvar*, ConCommandRef c, const CCommandContext& x, const CCommand& a)
+{
+    g_BotIdentityPlugin.Hook_DispatchConCommand_Post(c, x, a);
+    return { KHook::Action::Ignore };
+}
 
 IVEngineServer*     engine      = nullptr;
 IServerGameClients* gameclients = nullptr;
@@ -370,16 +419,16 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
     const char* /*pszNetworkID*/, const char* /*pszAddress*/, bool bFakePlayer)
 {
     int slotIdx = slot.Get();
-    if (!s_PluginActive) RETURN_META(MRES_IGNORED);
-    if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
-    if (pszName && std::strncmp(pszName, "HLTV", 4) == 0) RETURN_META(MRES_IGNORED);
+    if (!s_PluginActive) return;
+    if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) return;
+    if (pszName && std::strncmp(pszName, "HLTV", 4) == 0) return;
     if (s_MapSuspended) {
         if (botid::IdentityMgr().IsManaged(slotIdx)) {
             botid::IdentityMgr().Unmark(slotIdx);
             botid::PublishRelease(slotIdx);
             botid::ResetVoteTransactionSlot(slotIdx);
         }
-        RETURN_META(MRES_IGNORED);
+        return;
     }
 
     // If this slot was previously managed, ALWAYS release the shm state
@@ -392,14 +441,14 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
     }
 
     // Real players have non-zero xuid; bots have xuid=0
-    if (xuid != 0) RETURN_META(MRES_IGNORED);
+    if (xuid != 0) return;
     // Also skip real players by bFakePlayer (belt-and-suspenders)
-    if (!bFakePlayer) RETURN_META(MRES_IGNORED);
+    if (!bFakePlayer) return;
 
     botid::BotIdentity* identity = botid::BotInfos().GetFree();
     if (!identity) {
         META_CONPRINTF("[BotIdentity] OnClientConnected no free identity slot=%d\n", slotIdx);
-        RETURN_META(MRES_IGNORED);
+        return;
     }
 
     // Find index in vector
@@ -407,40 +456,40 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
     for (int i = 0; i < botid::BotInfos().Count(); ++i) {
         if (botid::BotInfos().GetByIndex(i) == identity) { botIndex = i; break; }
     }
-    if (botIndex < 0) RETURN_META(MRES_IGNORED);
+    if (botIndex < 0) return;
     botid::IdentityMgr().Mark(slotIdx, botIndex);
     botid::ApplyDisguise(slotIdx, identity);
 
-    RETURN_META(MRES_IGNORED);
+    return;
 }
 
 void BotIdentityPlugin::Hook_ClientPutInServer_Post(
     CPlayerSlot slot, const char* /*pszName*/, int /*type*/, uint64 /*xuid*/)
 {
-    if (!s_PluginActive || s_MapSuspended) RETURN_META(MRES_IGNORED);
+    if (!s_PluginActive || s_MapSuspended) return;
 
     int slotIdx = slot.Get();
-    if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
-    if (!botid::IdentityMgr().IsManaged(slotIdx)) RETURN_META(MRES_IGNORED);
+    if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) return;
+    if (!botid::IdentityMgr().IsManaged(slotIdx)) return;
 
     botid::BotIdentity* identity = botid::IdentityMgr().GetIdentity(slotIdx);
-    if (!identity || identity->applied) RETURN_META(MRES_IGNORED);
+    if (!identity || identity->applied) return;
 
     // Retry disguise — entity controller should exist now
     botid::ApplyDisguise(slotIdx, identity);
 
-    RETURN_META(MRES_IGNORED);
+    return;
 }
 
 void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
     CPlayerSlot slot, ENetworkDisconnectionReason reason, const char* /*pszName*/,
     uint64 /*xuid*/, const char* /*pszNetworkID*/)
 {
-    if (!s_PluginActive || s_MapSuspended) RETURN_META(MRES_IGNORED);
+    if (!s_PluginActive || s_MapSuspended) return;
 
     int slotIdx = slot.Get();
-    if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) RETURN_META(MRES_IGNORED);
-    if (!botid::IdentityMgr().IsManaged(slotIdx)) RETURN_META(MRES_IGNORED);
+    if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) return;
+    if (!botid::IdentityMgr().IsManaged(slotIdx)) return;
 
     // A vote transaction may hold a snapshot for this slot; drop it before
     // the entity goes away so the restore path cannot touch freed objects.
@@ -461,7 +510,7 @@ void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
     }
     botid::IdentityMgr().Unmark(slotIdx);
 
-    RETURN_META(MRES_IGNORED);
+    return;
 }
 
 bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t maxlen, bool late) {
@@ -538,22 +587,25 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
 
     srand(static_cast<unsigned int>(time(nullptr)));
 
-    SH_ADD_HOOK(IServerGameClients, OnClientConnected, gameclients,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_OnClientConnected_Post), true);
-    SH_ADD_HOOK(IServerGameClients, ClientPutInServer, gameclients,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_ClientPutInServer_Post), true);
-    SH_ADD_HOOK(IServerGameClients, ClientDisconnect, gameclients,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_ClientDisconnect_Pre), false);
+    if (!KHook::__exported__khook)
+    {
+        std::snprintf(error, maxlen, "KHook support required (API >= 18)");
+        return false;
+    }
+    g_hkConnected  = std::make_unique<HookConnectedBase>(&IServerGameClients::OnClientConnected, nullptr, &K_OnClientConnected);
+    g_hkPutIn      = std::make_unique<HookPutInBase>(&IServerGameClients::ClientPutInServer, nullptr, &K_ClientPutInServer);
+    g_hkDisconnect = std::make_unique<HookDisconnectBase>(&IServerGameClients::ClientDisconnect, &K_ClientDisconnect, nullptr);
+    g_hkGameFrame  = std::make_unique<HookGameFrameBase>(&IServerGameDLL::GameFrame, nullptr, &K_GameFrame);
+    g_hkConCmdPre  = std::make_unique<HookConCmdBase>(&ICvar::DispatchConCommand, &K_ConCmdPre, nullptr);
+    g_hkConCmdPost = std::make_unique<HookConCmdBase>(&ICvar::DispatchConCommand, nullptr, &K_ConCmdPost);
+    g_hkConnected->Add(gameclients);
+    g_hkPutIn->Add(gameclients);
+    g_hkDisconnect->Add(gameclients);
+    g_hkGameFrame->Add(gameserver);
+    g_hkConCmdPre->Add(icvar);
+    g_hkConCmdPost->Add(icvar);
 
     META_CONPRINTF("[BotIdentity] hooks installed: gameclients=%p\n", (void*)gameclients);
-
-    SH_ADD_HOOK(IServerGameDLL, GameFrame, gameserver,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_GameFrame_Post), true);
-
-    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Pre), false);
-    SH_ADD_HOOK(ICvar, DispatchConCommand, icvar,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Post), true);
 
     srand((unsigned int)time(nullptr));
     ConVar_Register(FCVAR_RELEASE | FCVAR_GAMEDLL);
@@ -571,18 +623,12 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
     botid::ClearPendingControllerRemovals();
     botid::ResetVoteTransaction();
 
-    SH_REMOVE_HOOK(IServerGameClients, OnClientConnected, gameclients,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_OnClientConnected_Post), true);
-    SH_REMOVE_HOOK(IServerGameClients, ClientPutInServer, gameclients,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_ClientPutInServer_Post), true);
-    SH_REMOVE_HOOK(IServerGameClients, ClientDisconnect, gameclients,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_ClientDisconnect_Pre), false);
-    SH_REMOVE_HOOK(IServerGameDLL, GameFrame, gameserver,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_GameFrame_Post), true);
-    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Pre), false);
-    SH_REMOVE_HOOK(ICvar, DispatchConCommand, icvar,
-        SH_MEMBER(this, &BotIdentityPlugin::Hook_DispatchConCommand_Post), true);
+    g_hkConnected.reset();
+    g_hkPutIn.reset();
+    g_hkDisconnect.reset();
+    g_hkGameFrame.reset();
+    g_hkConCmdPre.reset();
+    g_hkConCmdPost.reset();
 
     botid::ShutdownSharedMemory();
     ConVar_Unregister();
@@ -605,7 +651,7 @@ void BotIdentityPlugin::OnLevelInit(char const* pMapName, char const* /*pMapEnti
 void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
     ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& arguments)
 {
-    if (!s_PluginActive || s_MapSuspended || !command.IsValidRef()) RETURN_META(MRES_IGNORED);
+    if (!s_PluginActive || s_MapSuspended || !command.IsValidRef()) return;
     const char* name = command.GetName();
     if (!std::strcmp(name, "callvote")) {
         botid::BeginVoteTransaction();
@@ -658,27 +704,27 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Pre(
             META_CONPRINTF("[BotIdentity] %s ended native hold before add\n", name);
         }
     }
-    RETURN_META(MRES_IGNORED);
+    return;
 }
 
 void BotIdentityPlugin::Hook_DispatchConCommand_Post(
     ConCommandRef command, const CCommandContext& /*ctx*/, const CCommand& arguments)
 {
-    if (!command.IsValidRef()) RETURN_META(MRES_IGNORED);
+    if (!command.IsValidRef()) return;
     const char* name = command.GetName();
     if (botid::IsMapChangeCommand(name)) {
         if (arguments.ArgC() >= 2)
             botid::HintMapGate(arguments.Arg(1));
         botid::PollMapGate();
-        RETURN_META(MRES_IGNORED);
+        return;
     }
-    if (s_MapSuspended) RETURN_META(MRES_IGNORED);
+    if (s_MapSuspended) return;
     if (!std::strcmp(name, "callvote")) {
         if (botid::VoteTransactionActive()) {
             botid::ScheduleVoteTransactionEnd(
                 botid::BotInfos().Features().voteTransactionHoldFrames);
         }
-        RETURN_META(MRES_IGNORED);
+        return;
     }
     if (botid::IsKickCommand(name)) {
         if (m_PopulationCommandDepth != 0) {
@@ -704,7 +750,7 @@ void BotIdentityPlugin::Hook_DispatchConCommand_Post(
         botid::DumpPlayerControllers(name);
         botid::DumpTeamManagers(name);
     }
-    RETURN_META(MRES_IGNORED);
+    return;
 }
 
 void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTick*/, bool /*bLastTick*/) {

@@ -28,12 +28,14 @@ public sealed partial class BotIdentityImplPlugin
     private HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
         ScheduleTeammateColorReconcile();
+        NotifyPopulationPlayerSpawn(@event);
         return HookResult.Continue;
     }
 
     private HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
         ScheduleTeammateColorReconcile();
+        NotifyPopulationRoundStart();
         return HookResult.Continue;
     }
 

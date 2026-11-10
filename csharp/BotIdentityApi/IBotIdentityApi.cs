@@ -1,12 +1,17 @@
-// BotIdentityApi: public, read-only contract that the BotIdentity
-// native plugin exposes via CounterStrikeSharp's PluginCapability
-// system. Key = "botidentity:api".
+// BotIdentityApi: public contract that the BotIdentity native plugin
+// exposes via CounterStrikeSharp's PluginCapability system.
+// Key = "botidentity:api".
 //
 // Snapshot fields mirror the SlotState/SyntheticSid/PersonaName/
 // Incarnation entries in /dev/shm/CS2BotHider_Slots that the
 // native plugin writes. Slot is not durable — a fresh occupant
 // of the same engine slot may have a new Incarnation. Consumers
 // must re-validate slot+incarnation pairs.
+//
+// Population methods (TryAddBot / TryRemove*) are how other plugins
+// add and remove disguised bots. Default implementations return
+// Unsupported so an older BotIdentityImpl still loads against a
+// newer contract assembly.
 
 namespace BotIdentityApi;
 
@@ -80,4 +85,56 @@ public interface IBotIdentityApi
     /// Returns the current global identity mode the native plugin is in.
     /// </summary>
     BotIdentityMode GetIdentityMode();
+
+    /// <summary>
+    /// Add one Valve bot on <paramref name="team"/> (2 = T, 3 = CT).
+    /// The native plugin intercepts <c>bot_add</c> to apply disguise.
+    /// </summary>
+    BotPopulationResult TryAddBot(int team) => BotPopulationResult.Unsupported;
+
+    /// <summary>
+    /// Kick one managed bot on <paramref name="team"/> (2 = T, 3 = CT).
+    /// Prefers a random bot that is not being taken over. If every
+    /// remaining bot on that team is being taken over, returns
+    /// <see cref="BotPopulationResult.Deferred"/> and does not issue
+    /// <c>bot_kick</c> this tick. Callers should ask the operator to
+    /// retry after the next round starts.
+    /// </summary>
+    BotPopulationResult TryRemoveOneFromTeam(int team) => BotPopulationResult.Unsupported;
+
+    /// <summary>
+    /// Kick one managed bot by engine slot. Unmanaged slots return
+    /// <see cref="BotPopulationResult.NotManaged"/>. A slot that is
+    /// being taken over returns <see cref="BotPopulationResult.Deferred"/>
+    /// rather than being kicked this tick.
+    /// </summary>
+    BotPopulationResult TryRemoveSlot(int slot) => BotPopulationResult.Unsupported;
+
+    /// <summary>
+    /// Kick every managed bot that is not currently being taken over.
+    /// Taken-over bots are skipped this tick
+    /// (<see cref="BotPopulationResult.Deferred"/> when none were
+    /// removed). Does not issue <c>bot_kick all</c>.
+    /// </summary>
+    BotRemoveAllResult TryRemoveAll() => new() { Result = BotPopulationResult.Unsupported };
+}
+
+public enum BotPopulationResult
+{
+    Ok = 0,
+    Unsupported = 1,
+    NotConnected = 2,
+    InvalidTeam = 3,
+    NoBot = 4,
+    BeingControlled = 5,
+    NotManaged = 6,
+    Failed = 7,
+    Deferred = 8,
+}
+
+public readonly struct BotRemoveAllResult
+{
+    public int Removed { get; init; }
+    public int SkippedControlled { get; init; }
+    public BotPopulationResult Result { get; init; }
 }

@@ -12,11 +12,11 @@ There are two layers:
 | Layer | What it is | Required when |
 |---|---|---|
 | Native `BotIdentity.so` | Metamod plugin. Rewrites bot identity in the engine. | Always |
-| C# `BotIdentityImpl` | Reads the native plugin's shared-memory region, exposes `botidentity:api`, and assigns teammate colors | Only if CounterStrikeSharp is installed |
+| C# `BotIdentityImpl` | Reads the native plugin's shared-memory region, exposes `botidentity:api` (identity snapshots plus add/remove of managed bots), and assigns teammate colors | Only if CounterStrikeSharp is installed |
 
-The native plugin writes `/dev/shm/CS2BotHider_Slots`. Same-host consumers
-(this repo's `BotIdentityImpl`, or `BotHiderImpl.dll` in CS2-Bot-Improve)
-read that region. They do not write engine fields themselves.
+The native plugin writes `/dev/shm/CS2BotHider_Slots` (filename is a
+historical leftover). The only supported consumer is this repo's
+`BotIdentityImpl`. Do not load BotHider or `BotHiderImpl.dll`.
 
 The plugin never Steam-authenticates as the borrowed accounts. SteamID64
 values are only written into engine fields so the scoreboard can fetch a
@@ -257,11 +257,11 @@ treat `bot_kick` as a human disconnect. `callvote`, `bot_kick`, `kick`,
 `kickid`, and `banid` therefore share one identity transaction.
 
 This does **not** replace the native vote UI. CounterStrikeSharp plugins
-such as BotVoteFix still cannot rewrite Valve's internal voter ledger by
-patching `CVoteController`. BotVoteFix can Schema-zero
-`CBasePlayerController::m_steamID` during the same window (the write path
-BotHiderImpl already uses for the scoreboard). Zeroing more live SteamID
-copies or bumping `voteTransactionHoldFrames` does not change that ledger.
+such as Vote Improver still cannot rewrite Valve's internal voter ledger by
+patching `CVoteController`. Schema-zeroing
+`CBasePlayerController::m_steamID` during the same window does not change
+that ledger. Zeroing more live SteamID copies or bumping
+`voteTransactionHoldFrames` does not change it either.
 
 ### Window
 
@@ -338,7 +338,8 @@ and skips re-apply.
 ## Shared memory protocol
 
 `/dev/shm/CS2BotHider_Slots`, 1 064 960 bytes, magic `'BHID'` (`0x44494842`),
-version 1. Layout must match BotHider `slot_shm.h`.
+version 1. The filename and magic are historical leftovers; BotHider is
+not part of this stack. Layout is owned by CS2-Bot-Identity.
 
 | Offset | Field | Type | Notes |
 |---|---|---|---|
@@ -369,9 +370,21 @@ and are not written by this plugin. Consumers must validate
 
 ## C# API
 
-`BotIdentityImpl` is a pure reader of the shm region. It registers the
-CounterStrikeSharp capability `botidentity:api` (`IBotIdentityApi`) and
-assigns teammate colors so managed bots do not collide with humans.
+`BotIdentityImpl` reads the shm region and registers the
+CounterStrikeSharp capability `botidentity:api` (`IBotIdentityApi`).
+It also assigns teammate colors so managed bots do not collide with
+humans.
+
+Use the population methods (`TryAddBot`, `TryRemoveOneFromTeam`,
+`TryRemoveSlot`, `TryRemoveAll`) when another plugin needs to add or
+remove disguised bots. Those calls issue `bot_add` / named `bot_kick`
+so this plugin's native command hooks still run. Do not kick a
+disguised bot by Valve's default profile name, and do not issue
+`bot_kick all` while a human is taking a bot over. A taken-over bot
+is not kicked in the same tick: the API picks another bot on that
+team when one exists, otherwise it waits until the next round after
+the human respawns. If takeover is happening but the possessed bot
+cannot be identified, none of the remaining bots are kicked this tick.
 
 Do **not** call `SetModel` on zombies (CS2 `tm_leet_*` or s2ze workshop
 walker/frozen models) and then apply colors: those models crash with
@@ -465,9 +478,8 @@ Linux defaults currently compiled in:
 
 | Plugin | Relationship |
 |---|---|
-| CS2-Bot-Improve `BotHiderImpl` | Reads the same shm region for scoreboard appearance |
-| This repo `BotIdentityImpl` | Reads the same shm region; publishes `botidentity:api`; writes teammate colors |
-| BotQuotaManager-style quota plugins | Add/remove via `bot_kick <persona>` or `bot_kick all`; do not kick Valve default names |
+| This repo `BotIdentityImpl` | Reads the shm region; publishes `botidentity:api` (snapshots plus add/remove); writes teammate colors. Do not load BotHiderImpl |
+| Bot-Manager / quota plugins | Without Identity: Valve `bot_add` / `bot_kick`. With Identity: call `TryAddBot` / `TryRemove*` instead of kicking Valve default names |
 | [PluginToggle](https://github.com/xiaoyueyoqwq/CS2-Plugin-Toggle) | Unloads C# plugins by map. Cabin-style maps must also be in `mapBlacklist`, or the native layer still disguises |
 | BotVoteFix / CS2-Vote-Improver | Valve's voter ledger is still Valve's. BotIdentity only temporarily restores native bot markers in the command window |
 

@@ -20,15 +20,50 @@ if(NOT MMS OR NOT EXISTS "${MMS}")
     message(FATAL_ERROR "MMSOURCE_DEV env var not set or path missing: '${MMS}'")
 endif()
 
+# eiface.h pulls generated protobuf headers — generate them like BotController does.
+if(DEFINED ENV{PROTOC} AND EXISTS "$ENV{PROTOC}")
+    set(PROTOC_EXE "$ENV{PROTOC}")
+else()
+    find_program(PROTOC_EXE protoc)
+endif()
+set(GENERATED_DIR "${CMAKE_BINARY_DIR}/gen")
+file(MAKE_DIRECTORY "${GENERATED_DIR}")
+set(PROTO_FILES
+    network_connection.proto networkbasetypes.proto source2_steam_stats.proto
+    netmessages.proto valveextensions.proto usercmd.proto cs_usercmd.proto
+)
+set(PROTO_PATHS
+    "$ENV{CSGO_PROTO}" "${HL2SDK}/common" "${HL2SDK}/game/shared"
+    "${HL2SDK}/game/shared/cs" "${HL2SDK}/thirdparty/protobuf-3.21.8/src"
+)
+set(PROTOC_PATH_ARGS "")
+foreach(proto_path ${PROTO_PATHS})
+    list(APPEND PROTOC_PATH_ARGS "--proto_path=${proto_path}")
+endforeach()
+set(PROTO_SRCS "")
+foreach(p ${PROTO_FILES})
+    string(REGEX REPLACE "\\.proto$" ".pb.cc" cc ${p})
+    string(REGEX REPLACE "\\.proto$" ".pb.h" hh ${p})
+    list(APPEND PROTO_SRCS "${GENERATED_DIR}/${cc}" "${GENERATED_DIR}/${hh}")
+endforeach()
+add_custom_command(
+    OUTPUT ${PROTO_SRCS}
+    COMMAND "${PROTOC_EXE}" --cpp_out=${GENERATED_DIR} ${PROTOC_PATH_ARGS} ${PROTO_FILES}
+    COMMAND /bin/sh -c "perl -0pi -e 's/ final :/ :/g' '${GENERATED_DIR}'/*.pb.h || true"
+    WORKING_DIRECTORY "${HL2SDK}"
+    COMMENT "protoc cs2 protos"
+    VERBATIM
+)
+
 # SDK source files that Metamod plugins must compile themselves
-set(SDK_SOURCES
+set(SDK_SOURCES ${PROTO_SRCS}
     ${HL2SDK}/public/tier0/memoverride.cpp
     ${HL2SDK}/tier1/convar.cpp
-    ${MMS}/core/sourcehook/sourcehook.cpp
-    ${MMS}/core/sourcehook/sourcehook_impl_chookidman.cpp
-    ${MMS}/core/sourcehook/sourcehook_impl_chookmaninfo.cpp
-    ${MMS}/core/sourcehook/sourcehook_impl_cvfnptr.cpp
-    ${MMS}/core/sourcehook/sourcehook_impl_cproto.cpp
+    
+    
+    
+    
+    
 )
 
 add_library(BotIdentity SHARED
@@ -46,8 +81,8 @@ target_include_directories(BotIdentity PRIVATE
     ${CMAKE_BINARY_DIR}/gen
     ${HL2SDK}/thirdparty/protobuf-3.21.8/src
     ${MMS}/core
-    ${MMS}/core/sourcehook
     ${MMS}/core/sourcemm
+    ${MMS}/third_party/khook/include
     ${HL2SDK}/public
     ${HL2SDK}/public/engine
     ${HL2SDK}/public/game/server
@@ -63,6 +98,7 @@ target_compile_definitions(BotIdentity PRIVATE
     META_IS_SOURCE2
     PLATFORM_64BITS
     X64BITS
+    KHOOK_STANDALONE
 )
 
 if(WIN32)

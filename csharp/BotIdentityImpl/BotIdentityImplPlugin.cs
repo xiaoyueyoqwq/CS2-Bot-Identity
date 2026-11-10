@@ -9,7 +9,7 @@ namespace BotIdentityImpl;
 public sealed partial class BotIdentityImplPlugin : BasePlugin
 {
     public override string ModuleName => "BotIdentityImpl";
-    public override string ModuleVersion => "0.1.2";
+    public override string ModuleVersion => "0.2.3";
     public override string ModuleAuthor => "CS2-Bot-Identity";
     public override string ModuleDescription =>
         "Reads bot identity metadata from the BotIdentity native plugin via shared memory.";
@@ -19,6 +19,7 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
 
     private readonly SharedMemoryClient _client = new();
     private IBotIdentityApi? _api;
+    private BotIdentityApiImpl? _apiImpl;
     private CounterStrikeSharp.API.Modules.Timers.Timer? _colorDelayShort;
     private CounterStrikeSharp.API.Modules.Timers.Timer? _colorDelayLong;
 
@@ -26,7 +27,7 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
     {
         if (_client.TryConnect())
         {
-            _api = new BotIdentityApiImpl(_client);
+            BindApi();
             Capabilities.RegisterPluginCapability(Capability, () => _api);
             Logger.LogInformation("[BotIdentityImpl] shm bridge connected; botidentity:api registered");
         }
@@ -42,6 +43,7 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
         RegisterEventHandler<EventRoundStart>(OnRoundStart);
         RegisterListener<Listeners.OnClientDisconnect>(OnClientDisconnect);
+        RegisterListener<Listeners.OnMapStart>(OnMapStartClearPopulationQueue);
     }
 
     public override void OnAllPluginsLoaded(bool hotReload)
@@ -54,7 +56,7 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
     {
         if (_client.TryConnect())
         {
-            _api = new BotIdentityApiImpl(_client);
+            BindApi();
             Capabilities.RegisterPluginCapability(Capability, () => _api);
             Logger.LogInformation("[BotIdentityImpl] botidentity:api registered (late)");
         }
@@ -63,8 +65,17 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
     public override void Unload(bool hotReload)
     {
         KillColorDelayTimers();
+        ClearPopulationQueue();
+        RemoveListener<Listeners.OnMapStart>(OnMapStartClearPopulationQueue);
         _api = null;
+        _apiImpl = null;
         _client.Dispose();
+    }
+
+    private void BindApi()
+    {
+        _apiImpl = new BotIdentityApiImpl(_client, Logger, this);
+        _api = _apiImpl;
     }
 
     private void ScheduleTeammateColorReconcile()
@@ -92,13 +103,18 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
     }
 }
 
-internal sealed class BotIdentityApiImpl : IBotIdentityApi
+internal sealed partial class BotIdentityApiImpl : IBotIdentityApi
 {
     private readonly SharedMemoryClient _client;
+    private readonly ILogger _logger;
+    private readonly BotIdentityImplPlugin _plugin;
+    private readonly Random _random = new();
 
-    public BotIdentityApiImpl(SharedMemoryClient client)
+    public BotIdentityApiImpl(SharedMemoryClient client, ILogger logger, BotIdentityImplPlugin plugin)
     {
         _client = client;
+        _logger = logger;
+        _plugin = plugin;
     }
 
     public bool IsConnected => _client.IsConnected;
