@@ -80,9 +80,11 @@ void ShrinkTrailingLeftoverClients() {
 }
 
 bool ClientLooksLeftoverOrEmpty(int slot) {
+    // Check the native-owned mark before client resolution: a managed bot
+    // must never be reaped, even if m_Clients resolution is broken.
+    if (IdentityMgr().IsManaged(slot)) return false;
     void* client = ResolveClientBySlot(slot);
     if (!client) return true;
-    if (IdentityMgr().IsManaged(slot)) return false;
     if (ReadNetChannel(client) != nullptr) return false;
     if (ReadUserId(client) != 65535) return false;
     if (ReadSignonState(client) != 0) return false;
@@ -428,6 +430,10 @@ bool MoveManagedBotToSpectator(int slot) {
 
 void ReapOrphanControllers() {
     if (!GameServerAlive() || !UtilRemoveTarget()) return;
+    // If the client vector can't be read at all (stale m_Clients offset),
+    // every slot reports "leftover" and the reap would nuke live players.
+    // With zero clients there is nothing legitimate to reap anyway.
+    if (ClientListCount() <= 0) return;
 
     int detached = 0;
     int removed = 0;

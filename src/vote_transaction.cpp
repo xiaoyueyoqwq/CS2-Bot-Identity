@@ -185,25 +185,16 @@ bool CopiesReappeared(const VoteSlotSnapshot& snapshot, void* client, void* cont
 }
 
 void LogIdentityProbe(const VoteSlotSnapshot& snapshot, const char* when) {
-    uint64_t xuid = 0;
-    uint64_t engineSid = 0;
-    const char* netid = "";
-    if (engine && snapshot.slot >= 0) {
-        CPlayerSlot playerSlot(snapshot.slot);
-        xuid = engine->GetClientXUID(playerSlot);
-        if (const CSteamID* sid = engine->GetClientSteamID(playerSlot)) {
-            engineSid = sid->ConvertToUint64();
-        }
-        if (const char* id = engine->GetPlayerNetworkIDString(playerSlot)) {
-            netid = id;
-        }
-    }
-    VoteLog("[BotIdentity] vote transaction: identity probe when=%s slot=%d xuid=%llu engine_sid=%llu netid='%s' controller=%p\n",
+    // NOTE: engine->GetClientXUID/GetClientSteamID/GetPlayerNetworkIDString
+    // were removed: on 1.41.9.6 the IVEngineServer vtable slot these SDK
+    // indices dispatch to walks a handle table that segfaults on a slot whose
+    // SteamID copies we just zeroed (CopyTo(dst=NULL) in libengine2). The
+    // probe now reports only state we captured ourselves.
+    VoteLog("[BotIdentity] vote transaction: identity probe when=%s slot=%d ssc_sid=%llu entIdx=%d controller=%p\n",
             when,
             snapshot.slot,
-            static_cast<unsigned long long>(xuid),
-            static_cast<unsigned long long>(engineSid),
-            netid ? netid : "",
+            static_cast<unsigned long long>(snapshot.sscSteamId),
+            snapshot.entityIndex,
             snapshot.controller);
 }
 

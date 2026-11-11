@@ -8,7 +8,7 @@ metamod build ~1460+ 把插件接口升到 API18：`core/sourcehook/` **整个�
 
 - MM 头：`/home/xiaoyueyoqwq/project/CS2-Server/.codex/deps/metamod-source-18`（origin/master `ea513d8` worktree）
 - khook：`metamod-source-18/third_party/khook`（已 `git submodule update --init`）
-- `metamod-source-18/core/metamod_khook.h` 提供 `KHookImpl`（`KHook::SetupHook`/`SetupVirtualHook`），插件侧要求 `KHOOK_STANDALONE` 宏 + `KHook::__exported__khook` 非空检查
+- `metamod-source-18/core/metamod_khook.h` 提供 `KHookImpl`（`KHook::SetupHook`/`SetupVirtualHook`），插件侧只需 `KHook::__exported__khook` 非空检查。**不要定义 `KHOOK_STANDALONE`**——那是 khook 独立库的路径；插件应由 metamod 通过 `GetDetourInterface` 填充 `__exported__khook`。定义了会要求插件自带 khook 实现源，缺 `_ZN5KHook19GetOriginalFunctionEv` 符号被拒载（f4f3a2c 修的就是这个）
 
 ## 上游参考实现（XBribo/CS2-Bot-Controller main，已 khook）
 
@@ -48,7 +48,7 @@ if (!g_hook->AddChecked(clients)) fail;
 
 - `SDK_SOURCES` 里 `sourcehook*.cpp` 全部没了 → 换成 khook 需要的源（查 metamod-source-18/core 下有没有给插件编译的 khook 配套源文件；上游走 `cs2_sdk::sdk` 封装，我们没有，直接引 `khook/src` 或不需要源）
 - `target_include_directories` 加 `${MMS}/third_party/khook/include`
-- `target_compile_definitions` 加 `KHOOK_STANDALONE`
+- `target_compile_definitions` **不要**加 `KHOOK_STANDALONE`（见上）
 - `MMSOURCE_DEV` 指 `metamod-source-18`（API18 构建）或老 deps/metamod-source（API17 构建）二选一
 - glibc：构建机 2.43 > 服务器 2.39——若链出 `acosf/asinf/atan2f/sqrtf` 等符号，在 plugin.cpp 加 extern C 本地实现（RayTraceRemastered 同款解法）
 
@@ -154,7 +154,34 @@ g_hkGameFrame.reset(); g_hkConCmdPre.reset(); g_hkConCmdPost.reset();
 
 ### CMakeLists 改动
 
-- `SDK_SOURCES`：删 sourcehook*.cpp（mm-18 无此目录）——api18 下插件不需要这些源
+- `SDK_SOURCES`：删 sourcehook*.cpp（mm-18 无此目录）——api18 下插件不需要这些源；protobuf 对象也不要拖进来（PROTO_SRCS 会引入 descriptor 符号）
 - include 加 `${MMS}/third_party/khook/include`
-- defines 加 `KHOOK_STANDALONE`
+- **不定义** `KHOOK_STANDALONE`
 - `MMSOURCE_DEV` 指向 `metamod-source-18`
+
+## 1.41.9.6 运行期追加记录（2026-11-11）
+
+### `CNetworkGameServerBase::m_Clients` 偏移变化
+
+旧值 584（0x248）在此 build 上失效：`GetFreeClient` 反汇编 + 活体 probe 确认
+`CUtlVector` 布局为 `{m_Size@+0, m_Memory@+8}`，实际基址 **616（0x268）**——
+count 落在 gs+0x268、elements 指针在 gs+0x270。旧值读出的"count=0"会让
+`ReapOrphanControllers` 把所有 controller（含真人）判成孤儿删掉。
+已在 `controller_reap.cpp` 加双保险：`IsManaged` 前置检查 +
+`ClientListCount()<=0` 时 reap 直接 bail。
+
+### IVEngineServer 虚表与 SDK 头不一致
+
+`hl2sdk-cs2` 的 `eiface.h` 声明 102 个虚函数，`CEngineServer` 实际 vtable
+更多，槽位含义有漂移。实测 `engine->GetClientXUID`（SDK idx63）在
+1.41.9.6 上分发到一个句柄表遍历函数，`bot_kick` 身份事务里触发
+`CopyTo(dst=NULL)` 段错误（libengine2 +0x3db17）。`LogIdentityProbe` 已改为
+只打自建快照，不再调用 `GetClientXUID/GetClientSteamID/GetPlayerNetworkIDString`。
+`engine->ServerCommand`（SDK idx27，命名 bot_kick 的 kickid 路径）同属可疑区，
+需要实测验证——如有问题，`KickManagedBotByUserId` 会静默失效。
+
+### SourceTV 占位在 client 列表里
+
+SourceTV 的 slot 满足 `xuid=0 && bFakePlayer`，会穿过 OnClientConnected 的
+`HLTV*` 名过滤被 mark managed——`bot_kick` 时会 ChangeTeam 它的 controller、
+capture/restore 它的 client 对象。已加 `"SourceTV"` 名排除（plugin.cpp）。

@@ -33,7 +33,7 @@ inline int OFF_Controller_FakeClientFlags = 904;  // uint32_t
 inline int OFF_Controller_SteamID = 1800;  // uint64, schema 0x0708 (unverified live)
 
 // CNetworkGameServerBase::m_Clients
-inline int OFF_ClientList = 584;  // CUtlVector<CServerSideClient*>
+inline int OFF_ClientList = 616;  // CUtlVector<CServerSideClient*> (1.41.9.6: m_Size@+0x268)
 
 constexpr uint32_t kFakeClientBit = 0x100;
 

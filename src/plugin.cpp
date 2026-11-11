@@ -421,7 +421,8 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
     int slotIdx = slot.Get();
     if (!s_PluginActive) return;
     if (slotIdx < 0 || slotIdx >= botid::kMaxSlots) return;
-    if (pszName && std::strncmp(pszName, "HLTV", 4) == 0) return;
+    if (pszName && (std::strncmp(pszName, "HLTV", 4) == 0 ||
+                    std::strcmp(pszName, "SourceTV") == 0)) return;
     if (s_MapSuspended) {
         if (botid::IdentityMgr().IsManaged(slotIdx)) {
             botid::IdentityMgr().Unmark(slotIdx);

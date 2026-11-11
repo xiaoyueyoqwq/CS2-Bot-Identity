@@ -36,10 +36,10 @@
   },
   "CNetworkGameServerBase::m_Clients": {
     "offsets": {
-      "windows": 584,
-      "linux": 584
+      "windows": 616,
+      "linux": 616
     },
-    "comment": "CUtlVector<CServerSideClient*> base offset"
+    "comment": "CUtlVector<CServerSideClient*> base offset; 1.41.9.6 layout m_Size@+0x268/m_Memory@+0x270 (GetFreeClient disasm + live probe)"
   },
   "CBaseEntity::m_iTeamNum": {
     "offsets": {
