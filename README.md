@@ -5,7 +5,7 @@ Valve bots as players at the engine level (SteamID, persona name, ping,
 crosshair, scoreboard flair) and publishes that identity to shared memory
 so C# plugins can consume it.
 
-Current version **0.1.33**. License: MIT.
+Current version **0.1.34**. License: MIT.
 
 There are two layers:
 
@@ -99,7 +99,7 @@ it for other plugins to reference.
 Restart the CS2 process. The console should log:
 
 ```text
-[BotIdentity] loaded version=0.1.33 ...
+[BotIdentity] loaded version=0.1.34 ...
 ```
 
 If the C# side is installed:
