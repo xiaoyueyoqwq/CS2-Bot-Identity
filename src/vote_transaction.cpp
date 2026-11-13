@@ -1,6 +1,7 @@
 #include "vote_transaction.h"
 
 #include "bot_info.h"
+#include "controller_reap.h"
 #include "entity_access.h"
 #include "plugin.h"
 #include "shm_pub.h"
@@ -324,6 +325,18 @@ void RestorePlayerIdentity() {
         void* currentClient = ResolveClientBySlot(snapshot.slot);
         if (currentClient != snapshot.client) {
             VoteLog("[BotIdentity] vote transaction: restore skipped slot=%d: client rebound\n", snapshot.slot);
+            continue;
+        }
+
+        // A teardown stalled before OnClientDisconnect leaves managed=1 and
+        // this snapshot alive: restoring the disguise SteamID onto that
+        // corpse produces a signon>1 record that reads as a live managed bot
+        // in CMsgPlayerInfo — a permanent ghost. RecordLooksDead covers both
+        // the conn&0x08 corpse and the conn=0x01 corpse whose entity died;
+        // leave the record alone and let the leftover reap own it.
+        if (RecordLooksDead(currentClient)) {
+            VoteLog("[BotIdentity] vote transaction: restore skipped slot=%d: record dead\n",
+                    snapshot.slot);
             continue;
         }
 

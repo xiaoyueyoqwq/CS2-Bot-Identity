@@ -50,10 +50,10 @@
   },
   "CCSPlayerController_ChangeTeam": {
     "offsets": {
-      "windows": 103,
-      "linux": 102
+      "windows": 105,
+      "linux": 104
     },
-    "comment": "vtable index; called as a function, not hooked. Spectator=1 leaves T/CT occupancy"
+    "comment": "vtable index; called as a function, not hooked. Spectator=1 leaves T/CT occupancy. 1.41.9.7 vtable gained two slots: 102 -> 104 (upstream CSS gamedata)"
   },
   "CBasePlayerController::FakeClientFlags": {
     "offsets": {
@@ -68,6 +68,20 @@
       "linux": 1800
     },
     "comment": "schema dump 0x0708; 0.1.2 live vote-window read was a heap pointer, not SteamID64. Vote path scans for the disguise SteamID64 instead of writing this offset unconditionally"
+  },
+  "CBasePlayerController::m_iConnected": {
+    "offsets": {
+      "windows": 2032,
+      "linux": 2032
+    },
+    "comment": "PlayerConnectedState uint32; live dump build 14197 anchored m_iszPlayerName at +2040, iConnected sits 8 bytes before it"
+  },
+  "CBasePlayerController::m_iMostConnected": {
+    "offsets": {
+      "windows": 2036,
+      "linux": 2036
+    },
+    "comment": "PlayerConnectedState uint32, immediately after m_iConnected"
   },
   "UTIL_Remove": {
     "signatures": {

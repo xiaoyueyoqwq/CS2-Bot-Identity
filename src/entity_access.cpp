@@ -104,6 +104,8 @@ void LoadGamedata(const char* path) {
     tryApply("CBasePlayerController::FakeClientFlags",    OFF_Controller_FakeClientFlags);
     tryApply("CBasePlayerController::m_steamID",          OFF_Controller_SteamID);
     tryApply("CBaseEntity::m_iTeamNum",                   OFF_Controller_TeamNum);
+    tryApply("CBasePlayerController::m_iConnected",       OFF_Controller_Connected);
+    tryApply("CBasePlayerController::m_iMostConnected",   OFF_Controller_MostConnected);
     tryApply("CCSPlayerController_ChangeTeam",            OFF_ChangeTeamVtable);
     tryApply("CNetworkGameServerBase::m_Clients",         OFF_ClientList);
     tryApply("GameResourceServiceServer::m_pEntitySystem", s_kEntSys_OffsetInGameResSvc);
@@ -142,6 +144,22 @@ int ClientListCount() {
     const int count = clients->Count();
     if (count < 0 || count > 256) return 0;
     return count;
+}
+
+void** ClientArrayBase(int* outCount, int* outCapacity) {
+    auto* clients = ClientVector();
+    if (!clients) return nullptr;
+    const int count = clients->Count();
+    if (count < 0 || count > 256) return nullptr;
+    // CUtlVector layout: m_Size@+0, m_Memory.m_pMemory@+8,
+    // m_Memory.m_nAllocationCount@+16.
+    auto* raw = reinterpret_cast<unsigned char*>(clients);
+    void** arr = *reinterpret_cast<void***>(raw + 8);
+    const int cap = *reinterpret_cast<int*>(raw + 16);
+    if (!arr || cap < count || cap > 512) return nullptr;
+    if (outCount) *outCount = count;
+    if (outCapacity) *outCapacity = cap;
+    return arr;
 }
 
 bool ShrinkClientListTo(int newCount) {

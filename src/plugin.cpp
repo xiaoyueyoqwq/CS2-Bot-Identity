@@ -6,6 +6,7 @@
 #include "bot_info.h"
 #include "controller_reap.h"
 #include "entity_access.h"
+#include "identity_sync.h"
 #include "shm_pub.h"
 #include "ssc_ops.h"
 #include "vote_transaction.h"
@@ -18,6 +19,8 @@
 #include <ctime>
 
 #include <eiface.h>
+#include <entity2/entityinstance.h>
+#include <entityhandle.h>
 #include <interfaces/interfaces.h>
 #include <iserver.h>
 #include <tier1/convar.h>
@@ -64,10 +67,34 @@ static KHook::Return<void> K_ClientPutInServer(IServerGameClients*, CPlayerSlot 
     g_BotIdentityPlugin.Hook_ClientPutInServer_Post(s, n, t, x);
     return { KHook::Action::Ignore };
 }
+static bool s_PostNormalizeSlot[botid::kMaxSlots] = {};
+static bool s_BareBotMode = false;
+static bool s_DisconnectWritesEnabled = true;
+static bool s_ConnStateWriteEnabled = true;
+static bool s_KeepControllerFake = false;
+// A record that stays fake through disconnect takes the native bot
+// teardown path and frees cleanly; clearing m_bFakePlayer makes teardown
+// treat it as a real client (no netchan → stall → roster ghost).
+static bool s_KeepRecordFake = false;
+static bool s_DestroyQueueEnabled = true;
+
 static KHook::Return<void> K_ClientDisconnect(IServerGameClients*, CPlayerSlot s, ENetworkDisconnectionReason r,
                                               const char* n, uint64 x, const char* nid)
 {
     g_BotIdentityPlugin.Hook_ClientDisconnect_Pre(s, r, n, x, nid);
+    return { KHook::Action::Ignore };
+}
+static KHook::Return<void> K_ClientDisconnect_Post(IServerGameClients*, CPlayerSlot s, ENetworkDisconnectionReason,
+                                                   const char*, uint64, const char*)
+{
+    const int slot = s.Get();
+    if (slot >= 0 && slot < botid::kMaxSlots && s_PostNormalizeSlot[slot]) {
+        s_PostNormalizeSlot[slot] = false;
+        // Engine disconnect handling just ran for a managed bot; if its
+        // record still shows signon>1 it is a teardown-stalled corpse that
+        // keeps replicating CMsgPlayerInfo (team-select ghost model).
+        if (botid::g_CleanupEnabled) botid::NormalizeCorpseNow(slot);
+    }
     return { KHook::Action::Ignore };
 }
 static KHook::Return<void> K_GameFrame(IServerGameDLL*, bool sim, bool first, bool last)
@@ -138,7 +165,7 @@ void ApplyDisguise(int slot, BotIdentity* identity) {
     // breaks Steam CDN avatars for real accounts. GetFree() already refuses
     // to hand the same SteamID64 to two live slots.
 
-    ClearFakePlayer(client);
+    if (!s_KeepRecordFake) ClearFakePlayer(client);
     // Step 2: Write SteamID from the bot list
     WriteSteamId(client, identity->steamId);
 
@@ -146,8 +173,9 @@ void ApplyDisguise(int slot, BotIdentity* identity) {
     char className[64] = {0};
     void* controller = botid::ResolveEntityInstance(entityIndex, className, sizeof(className));
     if (controller && std::strcmp(className, "cs_player_controller") == 0) {
-        ClearControllerFakeClientFlag(controller);
+        if (!s_KeepControllerFake) ClearControllerFakeClientFlag(controller);
         MarkEntityStateChanged(controller);
+        botid::SyncControllerIdentity(slot, identity);
     }
 
     identity->applied = true;
@@ -221,6 +249,7 @@ static std::string BuildMapIdentity() {
 
 static int ReleaseManagedSlots() {
     ResetVoteTransaction();
+    botid::ResetIdentitySync();
     int released = 0;
     for (int slot = 0; slot < kMaxSlots; ++slot) {
         if (!IdentityMgr().IsManaged(slot)) continue;
@@ -412,6 +441,305 @@ CON_COMMAND_F(botidentity_dump,
     botid::DumpOccupiedClients("botidentity_dump");
     botid::DumpPlayerControllers("botidentity_dump");
     botid::DumpTeamManagers("botidentity_dump");
+    botid::DumpGhostEntities("botidentity_dump");
+    botid::DumpTeamSelectPositions("botidentity_dump");
+}
+
+CON_COMMAND_F(botidentity_disconnect_writes,
+              "Toggle disconnect-path writes (spectator move + RestoreIdentity).",
+              FCVAR_NONE)
+{
+    if (args.ArgC() >= 2)
+        s_DisconnectWritesEnabled = std::atoi(args[1]) != 0;
+    else
+        s_DisconnectWritesEnabled = !s_DisconnectWritesEnabled;
+    META_CONPRINTF("[BotIdentity] disconnect_writes=%d\n",
+                   s_DisconnectWritesEnabled ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_destroy_queue,
+              "Toggle deferred controller destroy queue on disconnect (0=engine owns teardown).",
+              FCVAR_NONE)
+{
+    if (args.ArgC() >= 2)
+        s_DestroyQueueEnabled = std::atoi(args[1]) != 0;
+    else
+        s_DestroyQueueEnabled = !s_DestroyQueueEnabled;
+    META_CONPRINTF("[BotIdentity] destroy_queue=%d\n",
+                   s_DestroyQueueEnabled ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_vecdump,
+              "Dump CTeam member vectors (+1936/+1960) of a manager entity: <entIdx>.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() < 2) {
+        META_CONPRINTF("usage: botidentity_vecdump <entIdx>\n");
+        return;
+    }
+    const int entIdx = std::atoi(args[1]);
+    char className[64] = {0};
+    void* inst = botid::ResolveEntityInstance(entIdx, className, sizeof(className));
+    if (!inst) {
+        META_CONPRINTF("[BotIdentity] vecdump entIdx=%d: no entity\n", entIdx);
+        return;
+    }
+    auto* raw = reinterpret_cast<unsigned char*>(inst);
+    for (int fieldOff : {1936, 1960}) {
+        void* mem = nullptr;
+        int32_t count = 0;
+        std::memcpy(&mem, raw + fieldOff, sizeof(mem));
+        std::memcpy(&count, raw + fieldOff + 8, sizeof(count));
+        META_CONPRINTF("[BotIdentity] vecdump ent=%d cls='%s' +%d ptr=%p count=%d\n",
+                       entIdx, className, fieldOff, mem, count);
+        if (!mem || count <= 0 || count > 64) continue;
+        auto* handles = reinterpret_cast<uint32_t*>(mem);
+        for (int i = 0; i < count; ++i) {
+            const uint32_t h = handles[i];
+            const int idx = static_cast<int>(h & 0x3FFFu);
+            char tc[64] = {0};
+            void* t = idx > 0 ? botid::ResolveEntityInstance(idx, tc, sizeof(tc)) : nullptr;
+            if (!t) {
+                META_CONPRINTF("[BotIdentity]   [%d]=0x%08x idx=%d DEAD\n", i, h, idx);
+                continue;
+            }
+            auto* te = reinterpret_cast<CEntityInstance*>(t);
+            const uint32_t lh = static_cast<uint32_t>(te->GetRefEHandle().ToInt());
+            META_CONPRINTF("[BotIdentity]   [%d]=0x%08x idx=%d cls='%s' %s\n",
+                           i, h, idx, tc, lh == h ? "ok" : "SERIAL-MISMATCH");
+        }
+    }
+}
+
+CON_COMMAND_F(botidentity_vecpoke,
+              "Remove element <i> from a manager's member vector: <entIdx> <fieldOff> <i>.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() < 4) {
+        META_CONPRINTF("usage: botidentity_vecpoke <entIdx> <fieldOff> <elemIdx>\n");
+        return;
+    }
+    const int entIdx = std::atoi(args[1]);
+    const int fieldOff = std::atoi(args[2]);
+    const int elemIdx = std::atoi(args[3]);
+    char className[64] = {0};
+    void* inst = botid::ResolveEntityInstance(entIdx, className, sizeof(className));
+    if (!inst) {
+        META_CONPRINTF("[BotIdentity] vecpoke ent=%d: no entity\n", entIdx);
+        return;
+    }
+    auto* raw = reinterpret_cast<unsigned char*>(inst);
+    void* mem = nullptr;
+    int32_t count = 0;
+    std::memcpy(&mem, raw + fieldOff, sizeof(mem));
+    std::memcpy(&count, raw + fieldOff + 8, sizeof(count));
+    if (!mem || count <= 0 || count > 64 || elemIdx < 0 || elemIdx >= count) {
+        META_CONPRINTF("[BotIdentity] vecpoke ent=%d +%d: bad vec ptr=%p count=%d elem=%d\n",
+                       entIdx, fieldOff, mem, count, elemIdx);
+        return;
+    }
+    auto* handles = reinterpret_cast<uint32_t*>(mem);
+    const uint32_t removed = handles[elemIdx];
+    for (int i = elemIdx; i < count - 1; ++i) handles[i] = handles[i + 1];
+    handles[count - 1] = 0xFFFFFFFFu;
+    const int32_t newCount = count - 1;
+    std::memcpy(raw + fieldOff + 8, &newCount, sizeof(newCount));
+    botid::MarkEntityFieldChanged(inst, static_cast<uint32_t>(fieldOff));
+    botid::MarkEntityStateChanged(inst);
+    META_CONPRINTF("[BotIdentity] vecpoke ent=%d cls='%s' +%d removed[%d]=0x%08x count=%d->%d\n",
+                   entIdx, className, fieldOff, elemIdx, removed, count, newCount);
+}
+
+CON_COMMAND_F(botidentity_ctrlfake_keep,
+              "Keep controller FL_FAKECLIENT during disguise (0=clear, 1=keep).",
+              FCVAR_NONE)
+{
+    if (args.ArgC() >= 2)
+        s_KeepControllerFake = std::atoi(args[1]) != 0;
+    else
+        s_KeepControllerFake = !s_KeepControllerFake;
+    META_CONPRINTF("[BotIdentity] ctrlfake_keep=%d\n",
+                   s_KeepControllerFake ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_recfake_keep,
+              "Keep record m_bFakePlayer during disguise (0=clear, 1=keep).",
+              FCVAR_NONE)
+{
+    if (args.ArgC() >= 2)
+        s_KeepRecordFake = std::atoi(args[1]) != 0;
+    else
+        s_KeepRecordFake = !s_KeepRecordFake;
+    META_CONPRINTF("[BotIdentity] recfake_keep=%d\n",
+                   s_KeepRecordFake ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_scanxuid,
+              "Scan entity memory for a u64: <steamid64>.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() < 2) {
+        META_CONPRINTF("usage: botidentity_scanxuid <steamid64>\n");
+        return;
+    }
+    const uint64_t needle = std::strtoull(args[1], nullptr, 10);
+    botid::ScanEntitiesForU64(needle, "scanxuid");
+}
+
+CON_COMMAND_F(botidentity_pospoke,
+              "Write team_select occupant xuid: <matchXuid|all> <newXuid>.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() < 3) {
+        META_CONPRINTF("usage: botidentity_pospoke <matchXuid|all> <newXuid>\n");
+        return;
+    }
+    botid::PokeTeamSelectXuid(args[1], std::strtoull(args[2], nullptr, 10));
+}
+
+CON_COMMAND_F(botidentity_moveteam,
+              "Move a live controller to a team via ChangeTeam vtable: <slot> <team>.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() < 3) {
+        META_CONPRINTF("usage: botidentity_moveteam <slot> <team>\n");
+        return;
+    }
+    const int slot = std::atoi(args[1]);
+    const int team = std::atoi(args[2]);
+    void* client = botid::ResolveClientBySlot(slot);
+    if (!client) {
+        META_CONPRINTF("[BotIdentity] moveteam slot=%d: no record\n", slot);
+        return;
+    }
+    char cls[64] = {0};
+    void* ctrl = botid::ResolveEntityInstance(botid::GetEntityIndex(client), cls, sizeof(cls));
+    if (!ctrl || std::strcmp(cls, "cs_player_controller") != 0) {
+        META_CONPRINTF("[BotIdentity] moveteam slot=%d: no controller cls='%s'\n", slot, cls);
+        return;
+    }
+    bool ok = botid::CallControllerChangeTeam(ctrl, team);
+    META_CONPRINTF("[BotIdentity] moveteam slot=%d team=%d ok=%d\n", slot, team, ok ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_fakeprobe,
+              "Set/clear controller FL_FAKECLIENT on a live slot: <slot> <0|1>.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() < 3) {
+        META_CONPRINTF("usage: botidentity_fakeprobe <slot> <0|1>\n");
+        return;
+    }
+    const int slot = std::atoi(args[1]);
+    const bool set = std::atoi(args[2]) != 0;
+    void* client = botid::ResolveClientBySlot(slot);
+    if (!client) {
+        META_CONPRINTF("[BotIdentity] fakeprobe slot=%d: no record\n", slot);
+        return;
+    }
+    char cls[64] = {0};
+    void* ctrl = botid::ResolveEntityInstance(botid::GetEntityIndex(client), cls, sizeof(cls));
+    if (!ctrl || std::strcmp(cls, "cs_player_controller") != 0) {
+        META_CONPRINTF("[BotIdentity] fakeprobe slot=%d: no controller cls='%s'\n", slot, cls);
+        return;
+    }
+    if (set) botid::SetControllerFakeClientFlag(ctrl);
+    else     botid::ClearControllerFakeClientFlag(ctrl);
+    botid::MarkEntityStateChanged(ctrl);
+    META_CONPRINTF("[BotIdentity] fakeprobe slot=%d fake=%d\n", slot, set ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_connprobe,
+              "Set/clear record-level fake flags on a live slot: <slot> <0|1>.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() < 3) {
+        META_CONPRINTF("usage: botidentity_connprobe <slot> <0|1>\n");
+        return;
+    }
+    const int slot = std::atoi(args[1]);
+    const bool set = std::atoi(args[2]) != 0;
+    void* client = botid::ResolveClientBySlot(slot);
+    if (!client) {
+        META_CONPRINTF("[BotIdentity] connprobe slot=%d: no record\n", slot);
+        return;
+    }
+    if (set) botid::SetFakePlayer(client);
+    else     botid::ClearFakePlayer(client);
+    META_CONPRINTF("[BotIdentity] connprobe slot=%d fake=%d\n", slot, set ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_recdump,
+              "Hex dump a client record's first 192 bytes: <slot>.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() < 2) {
+        META_CONPRINTF("usage: botidentity_recdump <slot>\n");
+        return;
+    }
+    const int slot = std::atoi(args[1]);
+    void* client = botid::ResolveClientBySlot(slot);
+    if (!client) {
+        META_CONPRINTF("[BotIdentity] recdump slot=%d: no record\n", slot);
+        return;
+    }
+    auto* raw = reinterpret_cast<const unsigned char*>(client);
+    for (int off = 0; off < 192; off += 8) {
+        uint64_t v = 0;
+        std::memcpy(&v, raw + off, 8);
+        META_CONPRINTF("[BotIdentity] rec slot=%d +%3d=0x%016llx\n", slot, off,
+                       static_cast<unsigned long long>(v));
+    }
+}
+
+CON_COMMAND_F(botidentity_cleanup,
+              "Toggle cleanup writes (reap/sweep/destroy/normalize).",
+              FCVAR_NONE)
+{
+    if (args.ArgC() >= 2)
+        botid::g_CleanupEnabled = std::atoi(args[1]) != 0;
+    else
+        botid::g_CleanupEnabled = !botid::g_CleanupEnabled;
+    META_CONPRINTF("[BotIdentity] cleanup=%d\n", botid::g_CleanupEnabled ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_connstate_write,
+              "Toggle m_iConnected=Disconnected write on managed-bot teardown.",
+              FCVAR_NONE)
+{
+    if (args.ArgC() >= 2)
+        s_ConnStateWriteEnabled = std::atoi(args[1]) != 0;
+    else
+        s_ConnStateWriteEnabled = !s_ConnStateWriteEnabled;
+    META_CONPRINTF("[BotIdentity] connstate_write=%d\n",
+                   s_ConnStateWriteEnabled ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_bare_bots,
+              "Toggle bare-bot mode (skip management+disguise for new bots)",
+              FCVAR_NONE)
+{
+    if (args.ArgC() >= 2)
+        s_BareBotMode = std::atoi(args[1]) != 0;
+    else
+        s_BareBotMode = !s_BareBotMode;
+    META_CONPRINTF("[BotIdentity] bare-bot mode=%d\n", s_BareBotMode ? 1 : 0);
+}
+
+CON_COMMAND_F(botidentity_leftover_test,
+              "Test engine release paths on a dead client slot: <slot> <mode> [reason].",
+              FCVAR_NONE)
+{
+    (void)context;
+    if (!s_PluginActive) return;
+    if (args.ArgC() < 3) {
+        META_CONPRINTF("usage: botidentity_leftover_test <slot> <mode 0=DisconnectClient|1=KickClient|2=SetFake|6=RemoveFromGame|8=StagedDisconnect|9=StagedDisconnect+Remove> [reason]\n");
+        return;
+    }
+    const int slot = atoi(args[1]);
+    const int mode = atoi(args[2]);
+    const int reason = args.ArgC() >= 4 ? atoi(args[3]) : 3;
+    botid::TestLeftoverRelease(slot, mode, reason);
 }
 
 void BotIdentityPlugin::Hook_OnClientConnected_Post(
@@ -446,6 +774,15 @@ void BotIdentityPlugin::Hook_OnClientConnected_Post(
     // Also skip real players by bFakePlayer (belt-and-suspenders)
     if (!bFakePlayer) return;
 
+    // DIAGNOSTIC: bare-bot mode skips management+disguise entirely so a
+    // kicked bot exercises the engine teardown path untouched by us.
+    if (s_BareBotMode) {
+        META_CONPRINTF("[BotIdentity] bare-bot slot=%d name='%s': not managed\n",
+                       slotIdx, pszName ? pszName : "?");
+        return;
+    }
+
+    botid::NotifyIdentityBound(slotIdx);
     botid::BotIdentity* identity = botid::BotInfos().GetFree();
     if (!identity) {
         META_CONPRINTF("[BotIdentity] OnClientConnected no free identity slot=%d\n", slotIdx);
@@ -495,21 +832,42 @@ void BotIdentityPlugin::Hook_ClientDisconnect_Pre(
     // A vote transaction may hold a snapshot for this slot; drop it before
     // the entity goes away so the restore path cannot touch freed objects.
     botid::ResetVoteTransactionSlot(slotIdx);
+    botid::NotifyIdentityDisconnected(slotIdx);
 
     const bool kickRemoval = botid::IsTargetedClientRemovalReason(reason);
-    if (kickRemoval) {
-        // Official team leave while still disguised. Must run before
-        // RestoreIdentity, and only for this slot: kick Pre used to move
-        // every managed bot to spectator, so bot_kick ct/t kicked nobody.
+    // DIAGNOSTIC GATE: botidentity_disconnect_writes 0 skips spectator move
+    // + RestoreIdentity to isolate which write produces roster ghosts.
+    if (s_DisconnectWritesEnabled && kickRemoval) {
         botid::MoveManagedBotToSpectator(slotIdx);
     }
 
     void* client = botid::ResolveClientBySlot(slotIdx);
-    botid::RestoreIdentity(slotIdx);
-    if (client && kickRemoval) {
+    if (s_DisconnectWritesEnabled) botid::RestoreIdentity(slotIdx);
+
+    // Ghost experiment: write m_iConnected=Disconnected on the corpse-bound
+    // controller before any entity removal, so the field delta replicates
+    // like a real teardown would emit. The client's M roster may key off
+    // this field rather than entity death.
+    if (s_ConnStateWriteEnabled && client) {
+        const int entIdx = botid::GetEntityIndex(client);
+        char cls[64] = {0};
+        void* ctrl = botid::ResolveEntityInstance(entIdx, cls, sizeof(cls));
+        if (ctrl && std::strcmp(cls, "cs_player_controller") == 0 &&
+            !botid::IsEntityBeingDeleted(ctrl)) {
+            botid::WriteControllerConnectedState(ctrl, 4);
+            botid::MarkEntityStateChanged(ctrl);
+            META_CONPRINTF("[BotIdentity] connstate write slot=%d entIdx=%d\n",
+                           slotIdx, entIdx);
+        }
+    }
+
+    if (client && kickRemoval && s_DestroyQueueEnabled) {
         botid::QueueControllerRemovalForClient(client, slotIdx);
     }
     botid::IdentityMgr().Unmark(slotIdx);
+    // Any managed disconnect can leave a teardown-stalled corpse; ask the
+    // post hook to normalize the record right after the engine's own path.
+    s_PostNormalizeSlot[slotIdx] = true;
 
     return;
 }
@@ -595,7 +953,7 @@ bool BotIdentityPlugin::Load(PluginId id, ISmmAPI* ismm, char* error, size_t max
     }
     g_hkConnected  = std::make_unique<HookConnectedBase>(&IServerGameClients::OnClientConnected, nullptr, &K_OnClientConnected);
     g_hkPutIn      = std::make_unique<HookPutInBase>(&IServerGameClients::ClientPutInServer, nullptr, &K_ClientPutInServer);
-    g_hkDisconnect = std::make_unique<HookDisconnectBase>(&IServerGameClients::ClientDisconnect, &K_ClientDisconnect, nullptr);
+    g_hkDisconnect = std::make_unique<HookDisconnectBase>(&IServerGameClients::ClientDisconnect, &K_ClientDisconnect, &K_ClientDisconnect_Post);
     g_hkGameFrame  = std::make_unique<HookGameFrameBase>(&IServerGameDLL::GameFrame, nullptr, &K_GameFrame);
     g_hkConCmdPre  = std::make_unique<HookConCmdBase>(&ICvar::DispatchConCommand, &K_ConCmdPre, nullptr);
     g_hkConCmdPost = std::make_unique<HookConCmdBase>(&ICvar::DispatchConCommand, nullptr, &K_ConCmdPost);
@@ -623,6 +981,7 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
 
     botid::ClearPendingControllerRemovals();
     botid::ResetVoteTransaction();
+    botid::ResetIdentitySync();
 
     g_hkConnected.reset();
     g_hkPutIn.reset();
@@ -765,6 +1124,7 @@ void BotIdentityPlugin::Hook_GameFrame_Post(bool /*simulating*/, bool /*bFirstTi
     if (s_MapSuspended) return;
 
     botid::TickVoteTransaction();
+    botid::TickIdentitySync();
     botid::DrainPendingControllerRemovals();
 
     const auto& f = botid::BotInfos().Features();

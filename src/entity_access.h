@@ -18,6 +18,12 @@ void* ResolveClientBySlot(int slot);
 // m_Clients.Count() after the same bounds check ResolveClientBySlot uses.
 int ClientListCount();
 
+// Raw m_Clients element array and its bounds. Elements at [count, capacity)
+// are stale record pointers the engine dropped from the active list — the
+// records still exist in memory with their old fields (userid/signon/
+// steamid), and teardown-stalled corpses keep looking like live bots there.
+void** ClientArrayBase(int* outCount, int* outCapacity);
+
 // Shrink m_Clients.Count() so leaked leftover pointers fall outside
 // 0..Count-1. Never inserts, never writes nullptr, never SetCount /
 // FastRemove. False if newCount is not strictly smaller than Count().

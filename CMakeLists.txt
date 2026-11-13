@@ -74,6 +74,7 @@ add_library(BotIdentity SHARED
     src/bot_info.cpp
     src/controller_reap.cpp
     src/entity_access.cpp
+    src/identity_sync.cpp
     src/shm_pub.cpp
     src/vote_transaction.cpp
     ${SDK_SOURCES}

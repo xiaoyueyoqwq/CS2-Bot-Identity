@@ -5,7 +5,7 @@ Valve bots as players at the engine level (SteamID, persona name, ping,
 crosshair, scoreboard flair) and publishes that identity to shared memory
 so C# plugins can consume it.
 
-Current version **0.1.34**. License: MIT.
+Current version **0.1.41**. License: MIT.
 
 There are two layers:
 
@@ -99,7 +99,7 @@ it for other plugins to reference.
 Restart the CS2 process. The console should log:
 
 ```text
-[BotIdentity] loaded version=0.1.34 ...
+[BotIdentity] loaded version=0.1.37 ...
 ```
 
 If the C# side is installed:
@@ -466,11 +466,63 @@ Linux defaults currently compiled in:
 | `CBaseEntity::m_fFlags` (`FL_FAKECLIENT`) | 904 |
 | `CBaseEntity::m_iTeamNum` | 1572 |
 | `CBasePlayerController::m_steamID` (do not write blindly) | 1800 |
-| `CNetworkGameServerBase::m_Clients` | 584 |
-| `CCSPlayerController::ChangeTeam` vtable (linux) | 102 |
+| `CNetworkGameServerBase::m_Clients` | 616 |
+| `CCSPlayerController::ChangeTeam` vtable (linux) | 104 |
 
 `UTIL_Remove` is a signature in `gamedata.json`, resolved against the
 `libserver.so` that hosts `IServerGameClients`.
+
+---
+
+## Known issues
+
+### Ghost entries in the team preview / team select roster
+
+Removing a managed (disguised) bot — `bot_kick`, `kickid`, or a
+consumer's `TryRemove*` — can leave its entry standing in the
+client-side preview roster. Entries accumulate across removals and are
+evicted only when another client joins the same slot or the client
+reconnects.
+
+Mechanism, as currently understood (investigated 2026-11-12/13): the
+disguise clears the record's `m_bFakePlayer`, so the engine tears the
+client down along the player-like path. That path stalls for a record
+with no netchannel (`conn=0x08 signon=6 netch=nil` corpse), and the
+roster — an accumulate-on-join client-side cache — never receives a
+removal signal. Releasing the record, destroying its controller, or
+restoring native markers after the fact does not evict the entry.
+
+Ruled out on live tests, do not retry without a new hypothesis:
+restoring fake markers in the `DispatchConCommand` kick window or
+`ClientDisconnect` Pre, disabling the disconnect-path spectator move
+and identity restore (`botidentity_disconnect_writes 0`), delegating
+controller destruction to the engine (`botidentity_destroy_queue 0`),
+and direct server-side writes to roster/team fields — none reach the
+client-side entry.
+
+`botidentity_recfake_keep 1` keeps the record native (`fake=1`) for its
+whole lifetime: teardown is clean and no entry is ever created — but
+the client then applies full native-bot treatment to the slot (Valve
+avatar, computer-player label, locked Steam profile, hidden ping, no
+roster model). That trades the entire disguise for clean removal, so it
+is a diagnostic switch, not a shipping mode.
+
+The issue is cosmetic — bots play normally, and entries do not block
+slots. Diagnostic commands left in-tree for a future pass:
+`botidentity_connprobe`, `botidentity_recdump`, `botidentity_fakeprobe`,
+`botidentity_vecdump`, `botidentity_vecpoke`, `botidentity_pospoke`,
+`botidentity_moveteam`, `botidentity_scanxuid`,
+`botidentity_leftover_test`, and the toggles above plus
+`botidentity_cleanup` / `botidentity_connstate_write` /
+`botidentity_bare_bots` / `botidentity_ctrlfake_keep`. All of these are
+write-capable and **toggle on a bare call** — always pass an explicit
+`0`/`1`.
+
+A real fix likely needs the removal broadcast the engine emits on
+native teardown — either `INetworkGameServer::DisconnectClient` ahead
+of the engine's own kick path, or keeping the roster entry from being
+classified as a player in the first place. May be fixed in a future
+update.
 
 ---
 

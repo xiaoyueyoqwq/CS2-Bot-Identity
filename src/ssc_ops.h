@@ -32,6 +32,12 @@ inline int OFF_Controller_FakeClientFlags = 904;  // uint32_t
 // disguise SteamID64 actually lives here.
 inline int OFF_Controller_SteamID = 1800;  // uint64, schema 0x0708 (unverified live)
 
+// CBasePlayerController::m_iConnected / m_iMostConnected (PlayerConnectedState
+// uint32). Live entity dump on build 14197 anchored m_iszPlayerName at +2040;
+// the two state fields sit 8 bytes before it in declaration order.
+inline int OFF_Controller_Connected     = 2032;  // uint32
+inline int OFF_Controller_MostConnected = 2036;  // uint32
+
 // CNetworkGameServerBase::m_Clients
 inline int OFF_ClientList = 616;  // CUtlVector<CServerSideClient*> (1.41.9.6: m_Size@+0x268)
 
@@ -135,6 +141,21 @@ inline void SetControllerFakeClientFlag(void* controller) {
     auto* raw = reinterpret_cast<unsigned char*>(controller);
     auto* flags = reinterpret_cast<uint32_t*>(raw + OFF_Controller_FakeClientFlags);
     *flags |= kFakeClientBit;
+}
+
+// PlayerConnectedState::Disconnected == 4 (NeverConnected=-1 Connected=0
+// Connecting=1 Reconnecting=2 Disconnecting=3 Disconnected=4 Reserved=5).
+inline void WriteControllerConnectedState(void* controller, uint32_t state) {
+    auto* raw = reinterpret_cast<unsigned char*>(controller);
+    std::memcpy(raw + OFF_Controller_Connected,     &state, sizeof(state));
+    std::memcpy(raw + OFF_Controller_MostConnected, &state, sizeof(state));
+}
+
+inline uint32_t ReadControllerConnectedState(const void* controller) {
+    auto* raw = reinterpret_cast<const unsigned char*>(controller);
+    uint32_t state = 0;
+    std::memcpy(&state, raw + OFF_Controller_Connected, sizeof(state));
+    return state;
 }
 
 inline uint64_t ReadControllerSteamId(const void* controller) {
