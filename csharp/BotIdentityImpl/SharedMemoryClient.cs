@@ -78,6 +78,10 @@ internal sealed class SharedMemoryClient : IDisposable
         return _view != null && slot >= 0 && slot < MaxSlots;
     }
 
+    // View state without a connect attempt — for hot paths (IsBot patch)
+    // where TryConnect's file open per call is too expensive.
+    internal bool HasView => _view != null;
+
     public bool IsConnected => _view != null || TryConnect();
 
     public bool IsManagedBot(int slot) =>

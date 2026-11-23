@@ -15,6 +15,9 @@
       <Private>false</Private>
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
+    <PackageReference Include="Lib.Harmony" Version="2.4.2">
+      <Private>false</Private>
+    </PackageReference>
     <ProjectReference Include="..\BotIdentityApi\BotIdentityApi.csproj">
       <Private>false</Private>
     </ProjectReference>

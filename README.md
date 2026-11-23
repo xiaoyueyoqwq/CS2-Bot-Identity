@@ -18,6 +18,12 @@ The native plugin writes `/dev/shm/CS2BotHider_Slots` (filename is a
 historical leftover). The only supported consumer is this repo's
 `BotIdentityImpl`. Do not load BotHider or `BotHiderImpl.dll`.
 
+`BotIdentityImpl` also applies a Harmony postfix on
+`CCSPlayerController.IsBot` so managed bots still report `IsBot=true`
+(disguise clears `FL_FAKECLIENT`) — plugins that detect bots via IsBot
+(BotRandomizer, BotBuy, ...) keep working. Requires Lib.Harmony 2.4.2
+via `addons/counterstrikesharp/shared/0Harmony`.
+
 The plugin never Steam-authenticates as the borrowed accounts. SteamID64
 values are only written into engine fields so the scoreboard can fetch a
 CDN avatar. VAC on a borrowed profile does not VAC a secure server.

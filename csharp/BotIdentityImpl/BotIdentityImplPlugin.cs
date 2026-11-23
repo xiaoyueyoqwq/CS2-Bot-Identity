@@ -2,6 +2,7 @@ using BotIdentityApi;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Capabilities;
+using HarmonyLib;
 using Microsoft.Extensions.Logging;
 
 namespace BotIdentityImpl;
@@ -9,7 +10,7 @@ namespace BotIdentityImpl;
 public sealed partial class BotIdentityImplPlugin : BasePlugin
 {
     public override string ModuleName => "BotIdentityImpl";
-    public override string ModuleVersion => "0.2.3";
+    public override string ModuleVersion => "0.2.4";
     public override string ModuleAuthor => "CS2-Bot-Identity";
     public override string ModuleDescription =>
         "Reads bot identity metadata from the BotIdentity native plugin via shared memory.";
@@ -22,9 +23,26 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
     private BotIdentityApiImpl? _apiImpl;
     private CounterStrikeSharp.API.Modules.Timers.Timer? _colorDelayShort;
     private CounterStrikeSharp.API.Modules.Timers.Timer? _colorDelayLong;
+    private Harmony? _harmony;
 
     public override void Load(bool hotReload)
     {
+        // IsBot compat patch: disguise clears FL_FAKECLIENT, so without this
+        // managed bots read IsBot=false and IsBot-based plugins skip them.
+        // Patch unconditionally — the postfix no-ops while shm is absent.
+        IsBotPatch.Client = _client;
+        try
+        {
+            _harmony = new Harmony("botidentity.isbot");
+            _harmony.PatchAll(typeof(BotIdentityImplPlugin).Assembly);
+            Logger.LogInformation("[BotIdentityImpl] IsBot compat patch applied");
+        }
+        catch (Exception e)
+        {
+            Logger.LogError(e, "[BotIdentityImpl] IsBot compat patch failed");
+            _harmony = null;
+        }
+
         if (_client.TryConnect())
         {
             BindApi();
@@ -64,6 +82,11 @@ public sealed partial class BotIdentityImplPlugin : BasePlugin
 
     public override void Unload(bool hotReload)
     {
+        // Unpatch before _client.Dispose() so the postfix never dereferences
+        // a dead shm view.
+        _harmony?.UnpatchAll(_harmony.Id);
+        _harmony = null;
+        IsBotPatch.Client = null;
         KillColorDelayTimers();
         ClearPopulationQueue();
         RemoveListener<Listeners.OnMapStart>(OnMapStartClearPopulationQueue);
