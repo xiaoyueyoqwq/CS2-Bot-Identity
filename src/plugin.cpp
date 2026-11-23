@@ -979,7 +979,7 @@ bool BotIdentityPlugin::Unload(char* error, size_t maxlen) {
     s_GateMap.clear();
     m_PopulationCommandDepth = 0;
 
-    botid::ClearPendingControllerRemovals();
+    botid::ResetReapState();
     botid::ResetVoteTransaction();
     botid::ResetIdentitySync();
 
@@ -1003,6 +1003,7 @@ void BotIdentityPlugin::OnLevelInit(char const* pMapName, char const* /*pMapEnti
                                     char const* /*pOldLevel*/, char const* /*pLandmarkName*/,
                                     bool /*loadGame*/, bool /*background*/)
 {
+    botid::ResetReapState();
     if (pMapName && pMapName[0])
         botid::ApplyMapGate(pMapName);
     botid::PollMapGate();

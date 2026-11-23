@@ -5,7 +5,7 @@ Valve bots as players at the engine level (SteamID, persona name, ping,
 crosshair, scoreboard flair) and publishes that identity to shared memory
 so C# plugins can consume it.
 
-Current version **0.1.41**. License: MIT.
+Current version **0.1.42**. License: MIT.
 
 There are two layers:
 

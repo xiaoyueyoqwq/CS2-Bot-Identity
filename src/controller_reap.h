@@ -70,6 +70,13 @@ extern bool g_CleanupEnabled;
 // Drop the queue without writing entities (unload / server gone).
 void ClearPendingControllerRemovals();
 
+// Reset every piece of leftover-reap bookkeeping: the pending controller
+// removal queue, per-slot leftover watches and stale team-member watches.
+// Armed watches from a previous map must not carry into the next level —
+// a corpse's old slot can be rebound to a connecting human whose record
+// briefly reads dead (2026-11-22 join loop after changelevel).
+void ResetReapState();
+
 // True when the record carries the marked-teardown fingerprint
 // (netch=nil && conn&0x08) or its m_nEntityIndex resolves to a dead,
 // recycled, or deleting entity. Catches conn=0x01 corpses that look

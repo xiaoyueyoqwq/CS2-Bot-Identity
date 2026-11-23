@@ -482,6 +482,12 @@ bool IsControllerReferencedByClient(void* controller, uint16_t* userIdOut) {
 // live client always points at its live cs_player_controller.
 bool RecordLooksDead(void* client) {
     if (!client) return true;
+    // A record with a netchannel is a connecting or live client — its
+    // lifecycle belongs to the engine. Connecting records pre-point
+    // m_nEntityIndex at a controller that does not exist yet, which the
+    // entity check below reads as dead; under hibernation that window
+    // outlives the dwell and reaps joining humans (2026-11-22 join loop).
+    if (ReadNetChannel(client) != nullptr) return false;
     if (ReadNetChannel(client) == nullptr &&
         (ReadConnectionTypeFlags(client) & 0x08) != 0) {
         return true;
@@ -931,6 +937,12 @@ void DrainPendingControllerRemovals() {
 }
 
 void ClearPendingControllerRemovals() { g_Pending.clear(); }
+
+void ResetReapState() {
+    g_Pending.clear();
+    for (auto& w : g_LeftoverWatch) w = LeftoverClientWatch{};
+    g_StaleMemberWatch.clear();
+}
 
 // Called from the ClientDisconnect POST hook for a managed slot that just
 // finished engine-side disconnect handling. The record teardown can stall
